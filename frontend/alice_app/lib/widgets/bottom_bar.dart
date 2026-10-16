@@ -34,7 +34,10 @@ class _BottomBarState extends State<AppBottomBar> {
       curve: Curves.easeOutCubic,
       builder: (context, v, child) => Opacity(
         opacity: v,
-        child: Transform.translate(offset: Offset(0, (1 - v) * 90), child: child),
+        child: Transform.translate(
+          offset: Offset(0, (1 - v) * 90),
+          child: child,
+        ),
       ),
       child: SizedBox(
         height: 88,
@@ -44,7 +47,17 @@ class _BottomBarState extends State<AppBottomBar> {
           children: [
             Container(
               height: 66,
-              color: Colors.white,
+              decoration: BoxDecoration(
+              color: kBg,
+              boxShadow: [
+                BoxShadow(
+                  color: kDarkPurple.withOpacity(0.12),
+                  blurRadius: 16,
+                  spreadRadius: 0,
+                  offset: const Offset(0, -4),
+                ),
+              ],
+            ),
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Row(
                 children: [
@@ -113,8 +126,11 @@ class _BottomBarState extends State<AppBottomBar> {
                           turns: _fabTurns,
                           duration: const Duration(milliseconds: 350),
                           curve: Curves.easeOutBack,
-                          child: const Icon(Icons.add,
-                              color: Colors.white, size: 34),
+                          child: const Icon(
+                            Icons.add,
+                            color: kBg,
+                            size: 34,
+                          ),
                         ),
                       ),
                     ),
