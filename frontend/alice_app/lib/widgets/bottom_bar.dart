@@ -51,7 +51,7 @@ class _BottomBarState extends State<AppBottomBar> {
               color: kBg,
               boxShadow: [
                 BoxShadow(
-                  color: kDarkPurple.withOpacity(0.12),
+                  color: kDarkPurple.withValues(alpha: 0.12),
                   blurRadius: 16,
                   spreadRadius: 0,
                   offset: const Offset(0, -4),
@@ -114,7 +114,7 @@ class _BottomBarState extends State<AppBottomBar> {
                         borderRadius: BorderRadius.circular(16),
                         boxShadow: [
                           BoxShadow(
-                            color: kPurple.withOpacity(0.4),
+                            color: kPurple.withValues(alpha: 0.4),
                             blurRadius: 10,
                             offset: const Offset(0, 4),
                           ),
@@ -174,7 +174,7 @@ class _NavItem extends StatelessWidget {
               vertical: 6,
             ),
             decoration: BoxDecoration(
-              color: selected ? kLightPurple : kLightPurple.withOpacity(0),
+              color: selected ? kLightPurple : kLightPurple.withValues(alpha: 0),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Column(

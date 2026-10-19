@@ -54,7 +54,7 @@ Future<T?> _showAnimatedDialog<T>(BuildContext context, Widget child) {
     barrierLabel: 'Tutup',
     barrierColor: Colors.black54,
     transitionDuration: const Duration(milliseconds: 280),
-    pageBuilder: (_, __, ___) => child,
+    pageBuilder: (_, _, _) => child,
     transitionBuilder: (context, anim, _, child) {
       final curved = CurvedAnimation(
         parent: anim,
@@ -451,7 +451,7 @@ BoxDecoration fieldDecoration() => BoxDecoration(
       border: Border.all(color: const Color(0xFFEAE6F2)),
       boxShadow: [
         BoxShadow(
-          color: kPurple.withOpacity(0.08),
+          color: kPurple.withValues(alpha: 0.08),
           blurRadius: 6,
           offset: const Offset(0, 2),
         ),

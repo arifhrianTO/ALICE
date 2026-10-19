@@ -180,7 +180,7 @@ class _ProfileDropdownState extends State<ProfileDropdown>
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
-              color: kDarkPurple.withOpacity(0.25),
+              color: kDarkPurple.withValues(alpha: 0.25),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -204,7 +204,7 @@ class _ProfileDropdownState extends State<ProfileDropdown>
                       alignment: Alignment.centerLeft,
                       children: [
                         ...previousChildren,
-                        if (currentChild != null) currentChild,
+                        ?currentChild,
                       ],
                     );
                   },
@@ -283,7 +283,7 @@ class _ProfileDropdownState extends State<ProfileDropdown>
                 opacity: _curve,
                 child: SizeTransition(
                   sizeFactor: _curve,
-                  axisAlignment: -1,
+                  alignment: Alignment.topCenter,
                   child: Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -291,7 +291,7 @@ class _ProfileDropdownState extends State<ProfileDropdown>
                       borderRadius: BorderRadius.circular(20),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withOpacity(0.25),
+                          color: Colors.black.withValues(alpha: 0.25),
                           blurRadius: 14,
                           offset: const Offset(0, 6),
                         ),
@@ -471,7 +471,7 @@ class _MapCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
+            color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -607,7 +607,7 @@ class _InfoCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(18),
         boxShadow: [
           BoxShadow(
-            color: kPurple.withOpacity(0.12),
+            color: kPurple.withValues(alpha: 0.12),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -668,7 +668,7 @@ class _UpcomingCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: kPurple.withOpacity(0.35),
+            color: kPurple.withValues(alpha: 0.35),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),

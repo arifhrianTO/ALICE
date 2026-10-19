@@ -93,7 +93,7 @@ class _JadwalPageState extends State<JadwalPage> {
                 duration: const Duration(milliseconds: 250),
                 layoutBuilder: (current, previous) => Stack(
                   alignment: Alignment.topCenter,
-                  children: [...previous, if (current != null) current],
+                  children: [...previous, ?current],
                 ),
                 child: ScheduleTimeline(
                   key: ValueKey(_selected.toString()),
@@ -190,7 +190,7 @@ class WeekStrip extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: kPurple.withOpacity(0.10),
+            color: kPurple.withValues(alpha: 0.10),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -432,7 +432,7 @@ class UpcomingScheduleCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: kPurple.withOpacity(0.35),
+            color: kPurple.withValues(alpha: 0.35),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -624,8 +624,8 @@ Route<T> slideRoute<T>(Widget page) {
   return PageRouteBuilder<T>(
     transitionDuration: const Duration(milliseconds: 350),
     reverseTransitionDuration: const Duration(milliseconds: 280),
-    pageBuilder: (_, __, ___) => page,
-    transitionsBuilder: (_, anim, __, child) {
+    pageBuilder: (_, _, _) => page,
+    transitionsBuilder: (_, anim, _, child) {
       final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
       return FadeTransition(
         opacity: curved,
@@ -731,7 +731,7 @@ class _KelolaJadwalPageState extends State<KelolaJadwalPage> {
                               key: ValueKey(_tab),
                               padding: const EdgeInsets.only(bottom: 100),
                               itemCount: items.length,
-                              separatorBuilder: (_, __) =>
+                              separatorBuilder: (_, _) =>
                                   const SizedBox(height: 10),
                               itemBuilder: (context, i) => Appear(
                                 key: ValueKey(items[i].id),
@@ -775,7 +775,7 @@ class StatusTabs extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: kPurple.withOpacity(0.3),
+            color: kPurple.withValues(alpha: 0.3),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -987,7 +987,7 @@ class _RoundFabState extends State<RoundFab> {
             shape: BoxShape.circle,
             boxShadow: [
               BoxShadow(
-                color: kPurple.withOpacity(0.4),
+                color: kPurple.withValues(alpha: 0.4),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -1075,7 +1075,7 @@ class OutlineBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: kPurple.withOpacity(0.6)),
+        border: Border.all(color: kPurple.withValues(alpha: 0.6)),
       ),
       child: Text(
         text,
@@ -1158,7 +1158,7 @@ class AccentCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: kPurple.withOpacity(0.15),
+            color: kPurple.withValues(alpha: 0.15),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
