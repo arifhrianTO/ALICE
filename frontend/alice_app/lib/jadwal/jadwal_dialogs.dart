@@ -189,10 +189,10 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
             onChanged: (_) {
               if (_error) setState(() => _error = false);
             },
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
             decoration: InputDecoration(
               hintText: 'Masukkan Jadwal',
-              hintStyle: const TextStyle(fontSize: 13, color: Colors.black38),
+              hintStyle: const TextStyle(fontSize: 14, color: Colors.black38),
               errorText: _error ? 'Nama jadwal wajib diisi' : null,
               filled: true,
               fillColor: kFieldBg,
@@ -305,7 +305,7 @@ class _ScheduleFormDialogState extends State<ScheduleFormDialog> {
               child: Text(
                 formatTime(_time),
                 style: const TextStyle(
-                  fontSize: 13,
+                  fontSize: 14,
                   fontWeight: FontWeight.w600,
                   color: Colors.black,
                 ),
