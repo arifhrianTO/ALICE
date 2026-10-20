@@ -64,6 +64,7 @@ flutter:
     - assets/icons/baterai.png
     - assets/icons/suhu.png
     - assets/icons/profil.png
+    - assets/icons/link.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:
