@@ -12,9 +12,6 @@ import 'tambah_tunanetra_dialogs.dart';
 /// Jumlah kartu per halaman pada pagination.
 const int _kPerPage = 5;
 
-/// Warna kotak nomor halaman yang sedang aktif (senada desain).
-const Color _kActivePage = Color(0xFFFBDCC4);
-
 class TautkanTunanetraPage extends StatefulWidget {
   const TautkanTunanetraPage({super.key});
 
@@ -76,20 +73,20 @@ class _TautkanTunanetraPageState extends State<TautkanTunanetraPage> {
     return Scaffold(
       backgroundColor: kBg,
       body: SafeArea(
-        child: Column(
-          children: [
-            _Header(onBack: () => Navigator.of(context).maybePop()),
-            _SearchBar(
-              controller: _search,
-              onChanged: (v) => setState(() {
-                _query = v;
-                _page = 0;
-                _forward = true;
-              }),
-            ),
-            const SizedBox(height: 14),
-            Expanded(
-              child: AnimatedSwitcher(
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              _Header(onBack: () => Navigator.of(context).maybePop()),
+              _SearchBar(
+                controller: _search,
+                onChanged: (v) => setState(() {
+                  _query = v;
+                  _page = 0;
+                  _forward = true;
+                }),
+              ),
+              const SizedBox(height: 16),
+              AnimatedSwitcher(
                 duration: const Duration(milliseconds: 340),
                 switchInCurve: Curves.easeOutCubic,
                 switchOutCurve: Curves.easeInCubic,
@@ -112,24 +109,31 @@ class _TautkanTunanetraPageState extends State<TautkanTunanetraPage> {
                 ),
                 child: pageItems.isEmpty
                     ? const _EmptyState(key: ValueKey('empty'))
-                    : ListView.separated(
+                    : Padding(
                         key: ValueKey('page-$page-$_query'),
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-                        itemCount: pageItems.length,
-                        separatorBuilder: (_, _) => const SizedBox(height: 12),
-                        itemBuilder: (_, i) => _TunanetraCard(
-                          person: pageItems[i],
-                          onTautkan: () => _onTautkan(pageItems[i]),
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (int i = 0; i < pageItems.length; i++) ...[
+                              if (i > 0) const SizedBox(height: 10),
+                              _TunanetraCard(
+                                person: pageItems[i],
+                                onTautkan: () => _onTautkan(pageItems[i]),
+                              ),
+                            ],
+                          ],
                         ),
                       ),
               ),
-            ),
-            _PaginationBar(
-              page: page,
-              totalPages: totalPages,
-              onSelect: _goTo,
-            ),
-          ],
+              const SizedBox(height: 16),
+              _PaginationBar(
+                page: page,
+                totalPages: totalPages,
+                onSelect: _goTo,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -147,28 +151,28 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 20, 10),
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 16),
       child: Row(
         children: [
           GestureDetector(
             onTap: onBack,
             child: Container(
-              width: 34,
-              height: 34,
+              width: 32,
+              height: 32,
               decoration: const BoxDecoration(
                 color: kPurple,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.arrow_back_rounded,
-                  color: Colors.white, size: 20),
+              child: const Icon(Icons.chevron_left_rounded,
+                  color: Colors.white, size: 24),
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 8),
           const Text(
             'Tautkan Tunanetra',
             style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
+              fontSize: 21,
+              fontWeight: FontWeight.w700,
               color: kTextPurple,
             ),
           ),
@@ -193,16 +197,16 @@ class _SearchBar extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20),
       child: Container(
         height: 48,
-        padding: const EdgeInsets.fromLTRB(16, 0, 4, 0),
+        padding: const EdgeInsets.fromLTRB(22, 0, 4, 0),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(24),
           border: Border.all(color: kLightPurple),
           boxShadow: [
             BoxShadow(
-              color: kPurple.withValues(alpha: 0.06),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
+              color: Colors.black.withValues(alpha: 0.08),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
@@ -213,24 +217,25 @@ class _SearchBar extends StatelessWidget {
                 controller: controller,
                 onChanged: onChanged,
                 textInputAction: TextInputAction.search,
-                style: const TextStyle(fontSize: 14),
+                cursorColor: kPurple,
+                style: const TextStyle(fontSize: 14, color: kTextPurple),
                 decoration: const InputDecoration(
                   isDense: true,
                   border: InputBorder.none,
                   hintText: 'Cari Tunanetra',
-                  hintStyle: TextStyle(fontSize: 14, color: Colors.black38),
+                  hintStyle: TextStyle(fontSize: 14, color: kTextPurple),
                 ),
               ),
             ),
             Container(
-              width: 40,
-              height: 40,
+              width: 42,
+              height: 42,
               decoration: const BoxDecoration(
                 color: kPurple,
                 shape: BoxShape.circle,
               ),
               child: const Icon(Icons.search_rounded,
-                  color: Colors.white, size: 22),
+                  color: Colors.white, size: 24),
             ),
           ],
         ),
@@ -251,50 +256,60 @@ class _TunanetraCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.fromLTRB(14, 18, 14, 18),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: kLightPurple),
         boxShadow: [
           BoxShadow(
-            color: kPurple.withValues(alpha: 0.10),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Row(
         children: [
           Container(
-            padding: const EdgeInsets.all(2),
+            padding: const EdgeInsets.all(1),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: kLightPurple, width: 2),
+              border: Border.all(color: kPurple, width: 1),
             ),
-            child: const Avatar(radius: 22),
+            child: const Avatar(radius: 30),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
                   person.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
-                    color: Colors.black87,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                    color: Colors.black,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 4),
                 Text(
                   person.email,
-                  style: const TextStyle(fontSize: 11, color: Colors.black45),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w400,
+                    color: Colors.black87,
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 6),
           _LinkButton(onTap: onTautkan),
         ],
       ),
@@ -310,24 +325,29 @@ class _LinkButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: kDarkPurple,
-      borderRadius: BorderRadius.circular(18),
+      color: kTitleIndigo,
+      borderRadius: BorderRadius.circular(16),
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
         child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          padding: EdgeInsets.symmetric(horizontal: 9, vertical: 3),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.link_rounded, color: Colors.white, size: 13),
-              SizedBox(width: 4),
+               Image(
+                image: AssetImage('assets/icons/link.png'),
+                width: 16,
+                height: 16,
+                color: Colors.white,
+              ),
+              SizedBox(width: 5),
               Text(
                 'Tautkan',
                 style: TextStyle(
                   color: Colors.white,
-                  fontWeight: FontWeight.w700,
-                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
                 ),
               ),
             ],
@@ -343,10 +363,14 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Text(
-        'Tunanetra tidak ditemukan',
-        style: TextStyle(fontSize: 13, color: Colors.black45),
+    return const SizedBox(
+      height: 200,
+      width: double.infinity,
+      child: Center(
+        child: Text(
+          'Tunanetra tidak ditemukan',
+          style: TextStyle(fontSize: 13, color: Colors.black45),
+        ),
       ),
     );
   }
@@ -369,52 +393,57 @@ class _PaginationBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(color: kLightPurple),
-          boxShadow: [
-            BoxShadow(
-              color: kPurple.withValues(alpha: 0.08),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            _PageNav(
-              label: 'Prev',
-              leading: Icons.chevron_left_rounded,
-              enabled: page > 0,
-              onTap: () => onSelect(page - 1),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    for (int p = 0; p < totalPages; p++)
-                      _PageNumber(
-                        number: p + 1,
-                        active: p == page,
-                        onTap: () => onSelect(p),
-                      ),
-                  ],
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 5),
+          decoration: BoxDecoration(
+            color: kPurple,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: kLightPurple, width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: kPurple.withValues(alpha: 0.25),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _PageNav(
+                label: 'Prev',
+                leading: Icons.chevron_left_rounded,
+                enabled: page > 0,
+                onTap: () => onSelect(page - 1),
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      for (int p = 0; p < totalPages; p++)
+                        _PageNumber(
+                          number: p + 1,
+                          active: p == page,
+                          onTap: () => onSelect(p),
+                        ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-            _PageNav(
-              label: 'Next',
-              trailing: Icons.chevron_right_rounded,
-              enabled: page < totalPages - 1,
-              onTap: () => onSelect(page + 1),
-            ),
-          ],
+              const SizedBox(width: 6),
+              _PageNav(
+                label: 'Next',
+                trailing: Icons.chevron_right_rounded,
+                enabled: page < totalPages - 1,
+                onTap: () => onSelect(page + 1),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -437,35 +466,26 @@ class _PageNumber extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedScale(
-        scale: active ? 1.15 : 1,
+        scale: active ? 1.1 : 1,
         duration: const Duration(milliseconds: 260),
         curve: Curves.easeOutBack,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 220),
           curve: Curves.easeOutCubic,
-          width: 28,
-          height: 28,
-          margin: const EdgeInsets.symmetric(horizontal: 3),
+          width: 24,
+          height: 26,
+          margin: const EdgeInsets.symmetric(horizontal: 2),
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: active ? _kActivePage : Colors.transparent,
-            borderRadius: BorderRadius.circular(9),
-            boxShadow: active
-                ? [
-                    BoxShadow(
-                      color: _kActivePage.withValues(alpha: 0.55),
-                      blurRadius: 8,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
+            color: active ? AliceColors.pinkMid : Colors.transparent,
+            borderRadius: BorderRadius.circular(6),
           ),
           child: AnimatedDefaultTextStyle(
             duration: const Duration(milliseconds: 220),
             style: TextStyle(
               fontSize: 13,
               fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-              color: active ? Colors.black87 : Colors.black54,
+              color: active ? kPurple : Colors.white,
             ),
             child: Text('$number'),
           ),
@@ -493,30 +513,33 @@ class _PageNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Opacity(
-      opacity: enabled ? 1 : 0.4,
+      opacity: enabled ? 1 : 0.6,
       child: Material(
-        color: kBtnLight,
-        borderRadius: BorderRadius.circular(18),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
         child: InkWell(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(16),
           onTap: enabled ? onTap : null,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            padding: EdgeInsets.fromLTRB(
+              leading != null ? 6 : 12,
+              5,
+              trailing != null ? 6 : 12,
+              5,
+            ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (leading != null)
-                  Icon(leading, size: 16, color: kDarkPurple),
+                if (leading != null) Icon(leading, size: 18, color: kPurple),
                 Text(
                   label,
                   style: const TextStyle(
-                    fontSize: 11,
+                    fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: kDarkPurple,
+                    color: kPurple,
                   ),
                 ),
-                if (trailing != null)
-                  Icon(trailing, size: 16, color: kDarkPurple),
+                if (trailing != null) Icon(trailing, size: 18, color: kPurple),
               ],
             ),
           ),
