@@ -27,10 +27,30 @@ class _JadwalPageState extends State<JadwalPage> {
     return ListenableBuilder(
       listenable: scheduleStore,
       builder: (context, _) {
-        final items = scheduleStore.forDay(_selected);
+        final items = [...scheduleStore.forDay(_selected)];
         final now = DateTime.now();
         final isToday = sameDay(_selected, now);
 
+        // Urutkan jadwal berdasarkan jam
+        if (isToday) {
+          final nowMin = now.hour * 60 + now.minute;
+
+          items.sort((a, b) {
+            final aUpcoming = a.minutes >= nowMin;
+            final bUpcoming = b.minutes >= nowMin;
+
+    // Jadwal mendatang selalu di atas jadwal yang sudah lewat
+        if (aUpcoming != bUpcoming) {
+          return aUpcoming ? -1 : 1;
+        }
+
+    // Urutkan berdasarkan jam paling dekat
+          return a.minutes.compareTo(b.minutes);
+        });
+      } else {
+  // Untuk tanggal lain, urutkan dari jam paling awal
+        items.sort((a, b) => a.minutes.compareTo(b.minutes));
+      }
         // Kartu "Mendatang!" = jadwal pertama yang belum lewat
         int highlight = -1;
         if (isToday) {
@@ -73,7 +93,7 @@ class _JadwalPageState extends State<JadwalPage> {
                           ? 'Jadwal hari ini'
                           : 'Jadwal ${_selected.day} ${monthAbbr[_selected.month - 1]}',
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 14,
                         fontWeight: FontWeight.w600,
                         color: kTextPurple,
                       ),
@@ -81,7 +101,7 @@ class _JadwalPageState extends State<JadwalPage> {
                     Text(
                       '${items.length} Jadwal',
                       style: const TextStyle(
-                        fontSize: 11,
+                        fontSize: 12,
                         color: Colors.black45,
                       ),
                     ),
@@ -121,10 +141,10 @@ class MiniProfileCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
       decoration: BoxDecoration(
         color: kDarkPurple,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(20),
       ),
       child: const Row(
         children: [
@@ -143,13 +163,13 @@ class MiniProfileCard extends StatelessWidget {
                 style: TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.bold,
-                  fontSize: 13,
+                  fontSize: 18,
                 ),
               ),
               SizedBox(height: 2),
               Text(
                 'BudiSantoso@gmail.com',
-                style: TextStyle(color: Colors.white, fontSize: 10),
+                style: TextStyle(color: Colors.white, fontSize: 15),
               ),
             ],
           ),
@@ -187,7 +207,7 @@ class WeekStrip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
             color: kPurple.withValues(alpha: 0.10),
@@ -217,7 +237,7 @@ class WeekStrip extends StatelessWidget {
     final hasEvent =
         scheduleStore.forDay(d).any((s) => s.repeat != RepeatType.daily);
     final style = TextStyle(
-      fontSize: 11.5,
+      fontSize: 15,
       fontWeight: isSel ? FontWeight.w800 : FontWeight.w500,
       color: kTextPurple,
     );
@@ -296,7 +316,7 @@ class ScheduleTimeline extends StatelessWidget {
             padding: EdgeInsets.symmetric(vertical: 18),
             child: Text(
               'Belum ada jadwal pada tanggal ini',
-              style: TextStyle(fontSize: 12, color: Colors.black45),
+              style: TextStyle(fontSize: 14, color: Colors.black45),
             ),
           ),
         for (int i = 0; i < items.length; i++)
@@ -426,10 +446,10 @@ class UpcomingScheduleCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 10, 12, 10),
+      padding: const EdgeInsets.fromLTRB(14, 18, 12, 18),
       decoration: BoxDecoration(
         color: kPurple,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
             color: kPurple.withValues(alpha: 0.35),
@@ -454,7 +474,7 @@ class UpcomingScheduleCard extends StatelessWidget {
                         'Mendatang!',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 20,
+                          fontSize: 22,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -465,7 +485,7 @@ class UpcomingScheduleCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 12,
+                          fontSize: 14,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -483,7 +503,7 @@ class UpcomingScheduleCard extends StatelessWidget {
               children: [
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFFD9DF),
                     borderRadius: BorderRadius.circular(10),
@@ -497,7 +517,7 @@ class UpcomingScheduleCard extends StatelessWidget {
                       Text(
                         'Ingatkan di ${schedule.reminderTime}',
                         style: const TextStyle(
-                          fontSize: 10,
+                          fontSize: 12,
                           fontWeight: FontWeight.w600,
                           color: Color(0xFF8A2A3C),
                         ),
@@ -532,7 +552,7 @@ class ScheduleCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return AccentCard(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+        padding: const EdgeInsets.fromLTRB(16, 16, 12, 16),
         child: IntrinsicHeight(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -547,7 +567,7 @@ class ScheduleCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 16,
+                        fontSize: 18,
                         fontWeight: FontWeight.w700,
                         color: kTextPurple,
                       ),
@@ -594,13 +614,13 @@ class ManageButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 38,
+      height: 40,
       width: double.infinity,
       child: Material(
         color: kDarkPurple,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(13),
         child: InkWell(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(13),
           onTap: () => Navigator.of(context).push(slideRoute(
             const KelolaJadwalPage(),
           )),
@@ -609,7 +629,7 @@ class ManageButton extends StatelessWidget {
               'Kelola Jadwal',
               style: TextStyle(
                 color: Colors.white,
-                fontSize: 12,
+                fontSize: 17,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -731,8 +751,8 @@ class _KelolaJadwalPageState extends State<KelolaJadwalPage> {
                               key: ValueKey(_tab),
                               padding: const EdgeInsets.only(bottom: 100),
                               itemCount: items.length,
-                              separatorBuilder: (_, _) =>
-                                  const SizedBox(height: 10),
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 14),
                               itemBuilder: (context, i) => Appear(
                                 key: ValueKey(items[i].id),
                                 index: i,
@@ -768,11 +788,11 @@ class StatusTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      height: 40,
-      padding: const EdgeInsets.all(4),
+      height: 38,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: kPurple,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
             color: kPurple.withValues(alpha: 0.3),
@@ -787,16 +807,16 @@ class StatusTabs extends StatelessWidget {
           return Stack(
             children: [
               AnimatedPositioned(
-                duration: const Duration(milliseconds: 300),
+                duration: const Duration(milliseconds: 250),
                 curve: Curves.easeOutCubic,
-                left: index * w,
-                top: 0,
-                bottom: 0,
-                width: w,
+                left: index * w + 3,
+                top: 2,
+                bottom: 2,
+                width: w - 6,
                 child: Container(
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(11),
+                    borderRadius: BorderRadius.circular(16),
                   ),
                 ),
               ),
@@ -808,9 +828,11 @@ class StatusTabs extends StatelessWidget {
                       child: GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTap: () => onChanged(i),
-                        child: Center(
+                        child: Container(
+                          alignment: Alignment.center,
+                          padding: EdgeInsets.zero,
                           child: AnimatedDefaultTextStyle(
-                            duration: const Duration(milliseconds: 250),
+                            duration: const Duration(milliseconds: 200),
                             style: TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
@@ -837,6 +859,7 @@ class StatusTabs extends StatelessWidget {
 // =====================================================================
 
 // ---------- Kartu kelola (dengan tombol ubah & hapus) ----------
+
 class ManageCard extends StatelessWidget {
   final Schedule schedule;
   const ManageCard({super.key, required this.schedule});
@@ -845,7 +868,7 @@ class ManageCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return AccentCard(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 8, 10, 8),
+        padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -860,7 +883,7 @@ class ManageCard extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        fontSize: 16,
+                        fontSize: 18,
                         fontWeight: FontWeight.w600,
                         color: Colors.black,
                       ),
@@ -868,15 +891,20 @@ class ManageCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 6),
-                OutlineBadge(text: 'Dibuat oleh ${schedule.createdBy}'),
+                OutlineBadge(
+                  text: 'Dibuat oleh ${schedule.createdBy}',
+                ),
                 const SizedBox(width: 4),
                 StatusBadge(status: schedule.status),
               ],
             ),
             Row(
               children: [
-                const Icon(Icons.access_time_rounded,
-                    size: 26, color: kTextPurple),
+                const Icon(
+                  Icons.access_time_rounded,
+                  size: 26,
+                  color: kTextPurple,
+                ),
                 const SizedBox(width: 6),
                 Text(
                   formatTime(schedule.time),
@@ -893,21 +921,29 @@ class ManageCard extends StatelessWidget {
               children: [
                 RepeatChip(schedule: schedule),
                 const SizedBox(width: 10),
-                ReminderInline(minutes: schedule.reminderMinutes),
-                const Spacer(),
-                _SmallIconButton(
-                  icon: Icons.edit_rounded,
-                  color: kPurple,
-                  background: const Color(0xFFEDE9FF),
-                  onTap: () => showEditScheduleDialog(context, schedule),
+                ReminderInline(
+                  minutes: schedule.reminderMinutes,
                 ),
-                const SizedBox(width: 6),
-                _SmallIconButton(
-                  icon: Icons.delete_outline_rounded,
-                  color: const Color(0xFFC62828),
-                  background: const Color(0xFFFFE9E9),
-                  onTap: () => showDeleteScheduleDialog(context, schedule),
-                ),
+
+                // Tombol hanya muncul jika status bukan Menunggu
+                if (schedule.status != ScheduleStatus.pending) ...[
+                  const Spacer(),
+                  _SmallIconButton(
+                    icon: Icons.edit_rounded,
+                    color: kPurple,
+                    background: const Color(0xFFEDE9FF),
+                    onTap: () =>
+                        showEditScheduleDialog(context, schedule),
+                  ),
+                  const SizedBox(width: 6),
+                  _SmallIconButton(
+                    icon: Icons.delete_outline_rounded,
+                    color: const Color(0xFFC62828),
+                    background: const Color(0xFFFFE9E9),
+                    onTap: () =>
+                        showDeleteScheduleDialog(context, schedule),
+                  ),
+                ],
               ],
             ),
           ],
@@ -916,6 +952,7 @@ class ManageCard extends StatelessWidget {
     );
   }
 }
+
 
 class _SmallIconButton extends StatelessWidget {
   final IconData icon;
@@ -942,9 +979,9 @@ class _SmallIconButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(6),
         onTap: onTap,
         child: SizedBox(
-          width: 26,
-          height: 26,
-          child: Icon(icon, size: 15, color: color),
+          width: 30,
+          height: 30,
+          child: Icon(icon, size: 19, color: color),
         ),
       ),
     );
@@ -1014,10 +1051,10 @@ class RepeatChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
       decoration: BoxDecoration(
         color: onDark ? Colors.white : const Color(0xFFE2DDF8),
-        borderRadius: BorderRadius.circular(5),
+        borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -1029,7 +1066,7 @@ class RepeatChip extends StatelessWidget {
           Text(
             schedule.repeatLabel,
             style: const TextStyle(
-              fontSize: 9,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
               color: kTitleIndigo,
             ),
@@ -1055,7 +1092,7 @@ class ReminderInline extends StatelessWidget {
         Text(
           '$minutes mnt',
           style: const TextStyle(
-            fontSize: 10,
+            fontSize: 13,
             fontWeight: FontWeight.w600,
             color: kTextPurple,
           ),
@@ -1072,7 +1109,7 @@ class OutlineBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: kPurple.withValues(alpha: 0.6)),
@@ -1080,7 +1117,7 @@ class OutlineBadge extends StatelessWidget {
       child: Text(
         text,
         style: const TextStyle(
-          fontSize: 8,
+          fontSize: 10,
           fontWeight: FontWeight.w500,
           color: kDarkPurple,
         ),
@@ -1116,7 +1153,7 @@ class StatusBadge extends StatelessWidget {
         break;
     }
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(10),
@@ -1124,12 +1161,12 @@ class StatusBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 9, color: fg),
+          Icon(icon, size: 12, color: fg),
           const SizedBox(width: 2),
           Text(
             status.label,
             style: TextStyle(
-              fontSize: 8,
+              fontSize: 12,
               fontWeight: FontWeight.w600,
               color: fg,
             ),
@@ -1155,7 +1192,7 @@ class AccentCard extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         color: kFieldBg,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
             color: kPurple.withValues(alpha: 0.15),
@@ -1165,7 +1202,7 @@ class AccentCard extends StatelessWidget {
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(20),
         child: IntrinsicHeight(
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
