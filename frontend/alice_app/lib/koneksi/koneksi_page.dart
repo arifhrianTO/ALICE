@@ -155,7 +155,7 @@ class _KoneksiPageState extends State<KoneksiPage> {
                 : ListView.separated(
                     padding: const EdgeInsets.only(bottom: 24),
                     itemCount: visible.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    separatorBuilder: (_, _) => const SizedBox(height: 10),
                     itemBuilder: (_, i) => ConnectionCard(
                       item: visible[i],
                       onDelete: () => _confirmDelete(visible[i]),
@@ -199,7 +199,7 @@ Future<bool?> showDisconnectDialog(
                 height: 110,
                 fit: BoxFit.contain,
                 // Kalau gambar tidak ditemukan, tampilkan ikon bawaan.
-                errorBuilder: (_, __, ___) => Container(
+                errorBuilder: (_, _, _) => Container(
                   width: 96,
                   height: 96,
                   decoration: const BoxDecoration(
@@ -457,7 +457,7 @@ class _Avatar extends StatelessWidget {
                   asset!,
                   fit: BoxFit.cover,
                   // Kalau gambar tidak ditemukan, tampilkan ikon orang.
-                  errorBuilder: (_, __, ___) => fallback,
+                  errorBuilder: (_, _, _) => fallback,
                 ),
         ),
       ),

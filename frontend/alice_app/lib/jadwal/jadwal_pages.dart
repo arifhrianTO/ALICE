@@ -751,7 +751,7 @@ class _KelolaJadwalPageState extends State<KelolaJadwalPage> {
                               key: ValueKey(_tab),
                               padding: const EdgeInsets.only(bottom: 100),
                               itemCount: items.length,
-                              separatorBuilder: (_, __) =>
+                              separatorBuilder: (_, _) =>
                                   const SizedBox(height: 14),
                               itemBuilder: (context, i) => Appear(
                                 key: ValueKey(items[i].id),

@@ -1,59 +1,49 @@
 import 'package:flutter/material.dart';
 
-/// Huruf "G" tegas warna gelap seperti di desain halaman masuk.
+/// Ikon Google dari aset (assets/icons/Google.png).
 class GoogleGIcon extends StatelessWidget {
   final double size;
-  const GoogleGIcon({super.key, this.size = 22});
+  const GoogleGIcon({super.key, this.size = 24});
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      'G',
-      style: TextStyle(
-        fontSize: size,
-        fontWeight: FontWeight.w900,
-        color: const Color(0xFF1F1F39),
-        height: 1,
-      ),
-    );
-  }
-}
-
-/// Logo Facebook: huruf "f" putih di atas kotak biru rounded.
-class FacebookBadge extends StatelessWidget {
-  final double size;
-  const FacebookBadge({super.key, this.size = 22});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
+    return Image.asset(
+      'assets/icons/Google.png',
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        color: const Color(0xFF1877F2),
-        borderRadius: BorderRadius.circular(size * 0.22),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        'f',
-        style: TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w900,
-          fontSize: size * 0.72,
-          height: 1,
-        ),
-      ),
+      fit: BoxFit.contain,
     );
   }
 }
 
-/// Ikon amplop merah seperti di desain tombol Email.
+/// Ikon Facebook dari aset (assets/icons/Facebook.png).
+class FacebookBadge extends StatelessWidget {
+  final double size;
+  const FacebookBadge({super.key, this.size = 24});
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      'assets/icons/Facebook.png',
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+    );
+  }
+}
+
+/// Ikon amplop dari aset (assets/icons/Email.png).
 class EmailBadge extends StatelessWidget {
   final double size;
   const EmailBadge({super.key, this.size = 24});
 
   @override
   Widget build(BuildContext context) {
-    return Icon(Icons.email, color: const Color(0xFFE05252), size: size);
+    return Image.asset(
+      'assets/icons/Email.png',
+      width: size,
+      height: size,
+      fit: BoxFit.contain,
+    );
   }
 }
