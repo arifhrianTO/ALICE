@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
 import '../core/colors.dart';
+import '../main.dart';
+import '../tunanetra/voice_page.dart';
 import '../widgets/alice_logo.dart';
 import '../widgets/brand_icons.dart';
 import '../widgets/pill_button.dart';
@@ -21,6 +25,30 @@ class LoginPage extends StatelessWidget {
         MaterialPageRoute(builder: (_) => const RolePage()),
       );
     }
+  }
+
+  /// Login simulasi untuk metode Google/Facebook (tanpa OAuth asli).
+  Future<void> _mockLogin(BuildContext context, String provider) async {
+    final isTunanetra = role == 'tunanetra';
+    final name = isTunanetra ? 'Ahmad Pratama' : 'Budi Santoso';
+    final email = isTunanetra
+        ? 'ahmad@$provider.com'
+        : 'budisantoso@$provider.com';
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isLoggedIn', true);
+    await prefs.setString('user_role', role);
+    await prefs.setString('user_name', name);
+    await prefs.setString('user_email', email);
+
+    if (!context.mounted) return;
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(
+        builder: (_) => isTunanetra ? const VoicePage() : const HomeShell(),
+      ),
+      (_) => false,
+    );
   }
 
   @override
@@ -60,13 +88,12 @@ class LoginPage extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 36),
-                    const PillButton(
+                    PillButton(
                       text: 'Masuk dengan Akun Google',
                       background: Colors.white,
-                      icon: GoogleGIcon(),
+                      icon: const GoogleGIcon(),
                       alignLeft: true,
-                      enabled: false,
-                      onTap: null,
+                      onTap: () => _mockLogin(context, 'google'),
                     ),
                     const SizedBox(height: 14),
                     PillButton(
@@ -82,13 +109,12 @@ class LoginPage extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 14),
-                    const PillButton(
+                    PillButton(
                       text: 'Masuk dengan Facebook',
                       background: AliceColors.blueLight,
-                      icon: FacebookBadge(),
+                      icon: const FacebookBadge(),
                       alignLeft: true,
-                      enabled: false,
-                      onTap: null,
+                      onTap: () => _mockLogin(context, 'facebook'),
                     ),
                     const Spacer(),
                     const SizedBox(height: 28),
