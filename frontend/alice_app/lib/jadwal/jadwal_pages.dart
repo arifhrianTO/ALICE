@@ -135,49 +135,71 @@ class _JadwalPageState extends State<JadwalPage> {
 // =====================================================================
 
 // ---------- Kartu profil kecil (tanpa dropdown) ----------
+
 class MiniProfileCard extends StatelessWidget {
   const MiniProfileCard({super.key});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 20,
+        vertical: 20,
+      ),
       decoration: BoxDecoration(
         color: kDarkPurple,
         borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: kDarkPurple.withValues(alpha: 0.25),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: const Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          // Ganti dengan backgroundImage: AssetImage('assets/profile.jpg')
           CircleAvatar(
-            radius: 20,
-            backgroundColor: kLightPurple,
-            child: Icon(Icons.person, size: 26, color: kDarkPurple),
+            radius: 26,
+            backgroundImage: AssetImage('assets/icons/profil.png'),
           ),
-          SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Budi Santoso',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
+          SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'Budi Santoso',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
                 ),
-              ),
-              SizedBox(height: 2),
-              Text(
-                'BudiSantoso@gmail.com',
-                style: TextStyle(color: Colors.white, fontSize: 15),
-              ),
-            ],
+                SizedBox(height: 2),
+                Text(
+                  'BudiSantoso@gmail.com',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 }
+
 
 
 // =====================================================================

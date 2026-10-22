@@ -4,7 +4,7 @@ import '../widgets/alice_logo.dart';
 import '../widgets/role_card.dart';
 import 'login_page.dart';
 
-/// Langkah setelah splash (jika belum login): pilih peran, lalu ke halaman metode masuk.
+/// pilih peran, lalu ke halaman metode masuk.
 class RolePage extends StatelessWidget {
   const RolePage({super.key});
 
@@ -31,7 +31,7 @@ class RolePage extends StatelessWidget {
                 'Selamat datang!',
                 style: TextStyle(
                   color: Colors.white,
-                  fontSize: 28,
+                  fontSize: 34,
                   fontWeight: FontWeight.w900,
                 ),
               ),
@@ -41,7 +41,7 @@ class RolePage extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white70,
-                  fontSize: 14,
+                  fontSize: 16,
                   height: 1.4,
                 ),
               ),
@@ -49,15 +49,15 @@ class RolePage extends StatelessWidget {
               RoleCard(
                 title: 'Penyandang Tunanetra',
                 desc: 'Dapatkan informasi harian, kelola jadwal, dan berinteraksi melalui suara bersama ALICE.',
-                icon: Icons.person,
+                iconPath: 'assets/icons/user_role_page.png',
                 circleColor: AliceColors.pinkMid,
                 onTap: () => _go(context, 'tunanetra'),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 34),
               RoleCard(
                 title: 'Pendamping',
                 desc: 'Terhubung dengan penyandang tunanetra dan bantu memantau serta mengatur jadwal.',
-                icon: Icons.handshake_outlined,
+                iconPath: 'assets/icons/handshake.png',
                 circleColor: AliceColors.blueLight,
                 onTap: () => _go(context, 'pendamping'),
               ),
