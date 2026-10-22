@@ -1,4 +1,6 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:alice_app/auth/login_page.dart';
 import 'package:alice_app/beranda/tunanetra_location.dart';
 
 void main() {
@@ -30,4 +32,29 @@ void main() {
       expect(item.longitude, isNotNull);
     }
   });
+
+  testWidgets('LoginPage hides email option when role is tunanetra', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: LoginPage(role: 'tunanetra'),
+      ),
+    );
+
+    expect(find.text('Masuk dengan Akun Google'), findsOneWidget);
+    expect(find.text('Masuk dengan Facebook'), findsOneWidget);
+    expect(find.text('Masuk dengan Email'), findsNothing);
+  });
+
+  testWidgets('LoginPage shows email option when role is pendamping', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: LoginPage(role: 'pendamping'),
+      ),
+    );
+
+    expect(find.text('Masuk dengan Akun Google'), findsOneWidget);
+    expect(find.text('Masuk dengan Facebook'), findsOneWidget);
+    expect(find.text('Masuk dengan Email'), findsOneWidget);
+  });
 }
+

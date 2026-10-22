@@ -55,6 +55,7 @@ class LoginPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isTunanetra = role == 'tunanetra';
     const footerStyle = TextStyle(
       color: Colors.white,
       fontSize: 16,
@@ -120,17 +121,20 @@ class LoginPage extends StatelessWidget {
                 onTap: () => _mockLogin(context, 'google'),
               ),
 
-              const SizedBox(height: 22),
-              _LoginButton(
-                text: 'Masuk dengan Email',
-                background: _pink,
-                icon: const Icon(Icons.email,
-                    color: Color(0xFFD94545), size: 30),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => EmailLoginPage(role: role)),
+              if (!isTunanetra) ...[
+                const SizedBox(height: 22),
+                _LoginButton(
+                  text: 'Masuk dengan Email',
+                  background: _pink,
+                  icon: const Icon(Icons.email,
+                      color: Color(0xFFD94545), size: 30),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => EmailLoginPage(role: role)),
+                  ),
                 ),
-              ),
+              ],
               const SizedBox(height: 22),
               _LoginButton(
                 text: 'Masuk dengan Facebook',

@@ -1,6 +1,5 @@
 
 import 'package:flutter/material.dart';
-import '../core/colors.dart';
 import '../core/text.dart';
 
 class RoleCard extends StatelessWidget {
