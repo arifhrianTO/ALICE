@@ -1,63 +1,171 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart' hide Path;
 
 import '../core/colors.dart';
+import 'tunanetra_location.dart';
 
 // =====================================================================
 //  HALAMAN BERANDA
 // =====================================================================
-class BerandaPage extends StatelessWidget {
+class BerandaPage extends StatefulWidget {
   const BerandaPage({super.key});
+
+  @override
+  State<BerandaPage> createState() => _BerandaPageState();
+}
+
+class _BerandaPageState extends State<BerandaPage> {
+  late Future<List<TunanetraLocation>> _tunanetraFuture;
+  int _selectedIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  void _loadData() {
+    _tunanetraFuture = TunanetraLocationService.fetchLinkedTunanetra()
+        .catchError((error) {
+      debugPrint(
+        'Gagal memuat tunanetra dari backend ($error). Menggunakan data default.',
+      );
+      return TunanetraLocation.defaultList;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     return ScrollConfiguration(
       behavior: const _NoStretchScrollBehavior(),
-      child: SingleChildScrollView(
-        physics: const ClampingScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(left: 4, bottom: 14),
-              child: Text(
-                'Beranda',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: kTextPurple,
-                ),
+      child: FutureBuilder<List<TunanetraLocation>>(
+        future: _tunanetraFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const SingleChildScrollView(
+              physics: ClampingScrollPhysics(),
+              padding: EdgeInsets.fromLTRB(20, 16, 20, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 14),
+                    child: Text(
+                      'Beranda',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: kTextPurple,
+                      ),
+                    ),
+                  ),
+                  _DropdownLoadingPlaceholder(),
+                  SizedBox(height: 14),
+                  _AddressRow(address: 'Memuat alamat lokasi...'),
+                  SizedBox(height: 10),
+                  _MapLoadingFallback(),
+                  SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _InfoCard(
+                          imagePath: 'assets/icons/baterai.png',
+                          value: '--',
+                          label: 'Baterai saat ini',
+                        ),
+                      ),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: _InfoCard(
+                          imagePath: 'assets/icons/suhu.png',
+                          value: '--',
+                          label: 'Suhu saat ini',
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 14),
+                  _UpcomingCard(),
+                ],
               ),
-            ),
-            const ProfileDropdown(),
-            const SizedBox(height: 14),
-            const _AddressRow(),
-            const SizedBox(height: 10),
-            const _MapCard(),
-            const SizedBox(height: 14),
-            const Row(
+            );
+          }
+
+          final list = snapshot.data ?? TunanetraLocation.defaultList;
+          final safeIndex =
+              _selectedIndex.clamp(0, list.isEmpty ? 0 : list.length - 1);
+          final currentTunanetra = list.isEmpty
+              ? const TunanetraLocation(
+                  id: '',
+                  name: 'Tidak ada data',
+                  email: '',
+                  latitude: 1.1301,
+                  longitude: 104.0529,
+                  address: '-',
+                  battery: '0%',
+                  temperature: '0°C',
+                )
+              : list[safeIndex];
+
+          return SingleChildScrollView(
+            physics: const ClampingScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: _InfoCard(
-                    imagePath: 'assets/icons/baterai.png',
-                    value: '89%',
-                    label: 'Baterai saat ini',
+                const Padding(
+                  padding: EdgeInsets.only(left: 4, bottom: 14),
+                  child: Text(
+                    'Beranda',
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: kTextPurple,
+                    ),
                   ),
                 ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: _InfoCard(
-                    imagePath: 'assets/icons/suhu.png',
-                    value: '35°C',
-                    label: 'Suhu saat ini',
-                  ),
+                ProfileDropdown(
+                  accounts: list,
+                  currentIndex: safeIndex,
+                  onSelected: (i) {
+                    setState(() {
+                      _selectedIndex = i;
+                    });
+                  },
                 ),
+                const SizedBox(height: 14),
+                _AddressRow(address: currentTunanetra.address),
+                const SizedBox(height: 10),
+                _MapCard(
+                  location: currentTunanetra,
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _InfoCard(
+                        imagePath: 'assets/icons/baterai.png',
+                        value: currentTunanetra.battery,
+                        label: 'Baterai saat ini',
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _InfoCard(
+                        imagePath: 'assets/icons/suhu.png',
+                        value: currentTunanetra.temperature,
+                        label: 'Suhu saat ini',
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                const _UpcomingCard(),
               ],
             ),
-            const SizedBox(height: 14),
-            const _UpcomingCard(),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -77,17 +185,69 @@ class _NoStretchScrollBehavior extends MaterialScrollBehavior {
 }
 
 // =====================================================================
-//  PROFIL + DROPDOWN AKUN (dengan animasi)
+//  PLACEHOLDER SAAT LOADING DROPDOWN
 // =====================================================================
-class Account {
-  final String name;
-  final String email;
+class _DropdownLoadingPlaceholder extends StatelessWidget {
+  const _DropdownLoadingPlaceholder();
 
-  const Account(this.name, this.email);
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+      decoration: BoxDecoration(
+        color: kDarkPurple,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: const Row(
+        children: [
+          CircleAvatar(
+            radius: 26,
+            backgroundImage: AssetImage('assets/icons/profil.png'),
+          ),
+          SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Memuat data...',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 18,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Silakan tunggu',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
+// =====================================================================
+//  PROFIL + DROPDOWN AKUN (dengan animasi)
+// =====================================================================
 class ProfileDropdown extends StatefulWidget {
-  const ProfileDropdown({super.key});
+  final List<TunanetraLocation> accounts;
+  final int currentIndex;
+  final ValueChanged<int> onSelected;
+
+  const ProfileDropdown({
+    super.key,
+    required this.accounts,
+    required this.currentIndex,
+    required this.onSelected,
+  });
 
   @override
   State<ProfileDropdown> createState() => _ProfileDropdownState();
@@ -101,12 +261,6 @@ class _ProfileDropdownState extends State<ProfileDropdown>
   late final Animation<double> _curve;
 
   double _width = 300;
-  int _current = 0;
-
-  final List<Account> _accounts = const [
-    Account('Budi Santoso', 'BudiSantoso@gmail.com'),
-    Account('Budi Santoso', 'BudiSantoso@gmail.com'),
-  ];
 
   @override
   void initState() {
@@ -147,7 +301,7 @@ class _ProfileDropdownState extends State<ProfileDropdown>
   }
 
   void _select(int i) {
-    setState(() => _current = i);
+    widget.onSelected(i);
     _ctrl.reverse();
   }
 
@@ -169,7 +323,25 @@ class _ProfileDropdownState extends State<ProfileDropdown>
   }
 
   Widget _buildHeader() {
-    final acc = _accounts[_current];
+    if (widget.accounts.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+        decoration: BoxDecoration(
+          color: kDarkPurple,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: const Center(
+          child: Text(
+            'Belum ada akun tunanetra tertaut',
+            style: TextStyle(color: Colors.white),
+          ),
+        ),
+      );
+    }
+
+    final safeIndex =
+        widget.currentIndex.clamp(0, widget.accounts.length - 1);
+    final acc = widget.accounts[safeIndex];
 
     return GestureDetector(
       onTap: _toggle,
@@ -196,7 +368,7 @@ class _ProfileDropdownState extends State<ProfileDropdown>
             const SizedBox(width: 14),
             Expanded(
               child: Align(
-                alignment: Alignment.centerLeft,
+                 alignment: Alignment.centerLeft,
                 child: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 250),
                   layoutBuilder: (currentChild, previousChildren) {
@@ -209,7 +381,7 @@ class _ProfileDropdownState extends State<ProfileDropdown>
                     );
                   },
                   child: Column(
-                    key: ValueKey(_current),
+                    key: ValueKey(acc.id),
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -300,17 +472,17 @@ class _ProfileDropdownState extends State<ProfileDropdown>
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        for (int i = 0; i < _accounts.length; i++)
+                        for (int i = 0; i < widget.accounts.length; i++)
                           _staggered(
                             i,
                             Padding(
                               padding: EdgeInsets.only(
                                 bottom:
-                                    i == _accounts.length - 1 ? 0 : 12,
+                                    i == widget.accounts.length - 1 ? 0 : 12,
                               ),
                               child: _AccountTile(
-                                account: _accounts[i],
-                                selected: i == _current,
+                                account: widget.accounts[i],
+                                selected: i == widget.currentIndex,
                                 onTap: () => _select(i),
                               ),
                             ),
@@ -352,7 +524,7 @@ class _ProfileDropdownState extends State<ProfileDropdown>
 }
 
 class _AccountTile extends StatelessWidget {
-  final Account account;
+  final TunanetraLocation account;
   final bool selected;
   final VoidCallback onTap;
 
@@ -431,20 +603,22 @@ class _AccountTile extends StatelessWidget {
 //  ALAMAT
 // =====================================================================
 class _AddressRow extends StatelessWidget {
-  const _AddressRow();
+  final String address;
+
+  const _AddressRow({required this.address});
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        Icon(Icons.location_on, color: kPurple, size: 26),
-        SizedBox(width: 10),
+        const Icon(Icons.location_on, color: kPurple, size: 26),
+        const SizedBox(width: 10),
         Expanded(
           child: Text(
-            'Jl. Ahmad Yani, Tlk. Tering, Kec. Batam Kota, Kota Batam, Kepulauan Riau 29461',
+            address,
             textAlign: TextAlign.left,
-            style: TextStyle(
+            style: const TextStyle(
               fontSize: 15,
               fontWeight: FontWeight.bold,
               color: Colors.black,
@@ -458,10 +632,196 @@ class _AddressRow extends StatelessWidget {
 }
 
 // =====================================================================
-//  PETA (ilustrasi CustomPaint)
+//  PETA OPENSTREETMAP (INTERAKTIF - 1 MAP UNTUK 1 TUNANETRA)
 // =====================================================================
-class _MapCard extends StatelessWidget {
-  const _MapCard();
+class _MapCard extends StatefulWidget {
+  final TunanetraLocation location;
+
+  const _MapCard({
+    required this.location,
+  });
+
+  @override
+  State<_MapCard> createState() => _MapCardState();
+}
+
+class _MapCardState extends State<_MapCard> {
+  late final MapController _mapController;
+
+  @override
+  void initState() {
+    super.initState();
+    _mapController = MapController();
+  }
+
+  @override
+  void didUpdateWidget(covariant _MapCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.location.id != widget.location.id ||
+        oldWidget.location.latitude != widget.location.latitude ||
+        oldWidget.location.longitude != widget.location.longitude) {
+      _mapController.move(
+        LatLng(widget.location.latitude, widget.location.longitude),
+        16.0,
+      );
+    }
+  }
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  void _recenter() {
+    _mapController.move(
+      LatLng(widget.location.latitude, widget.location.longitude),
+      16.0,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final loc = widget.location;
+
+    return Container(
+      height: 300,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: Stack(
+          children: [
+            FlutterMap(
+              mapController: _mapController,
+              options: MapOptions(
+                initialCenter: LatLng(loc.latitude, loc.longitude),
+                initialZoom: 16.0,
+                interactionOptions: const InteractionOptions(
+                  flags: InteractiveFlag.all,
+                ),
+              ),
+              children: [
+                TileLayer(
+                  urlTemplate:
+                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                  fallbackUrl:
+                      'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                  userAgentPackageName: 'com.example.alice_app',
+                ),
+                MarkerLayer(
+                  markers: [
+                    Marker(
+                      point: LatLng(
+                        loc.latitude,
+                        loc.longitude,
+                      ),
+                      width: 100,
+                      height: 60,
+                      alignment: Alignment.topCenter,
+                      child: _TunanetraMarker(
+                        name: loc.name,
+                      ),
+                    ),
+                  ],
+                ),
+                const SimpleAttributionWidget(
+                  source: Text('© OpenStreetMap'),
+                ),
+              ],
+            ),
+            // Tombol Re-center ke lokasi tunanetra aktif
+            Positioned(
+              right: 12,
+              bottom: 12,
+              child: Material(
+                color: Colors.white,
+                shape: const CircleBorder(),
+                elevation: 4,
+                child: InkWell(
+                  customBorder: const CircleBorder(),
+                  onTap: _recenter,
+                  child: const Padding(
+                    padding: EdgeInsets.all(9),
+                    child: Icon(
+                      Icons.my_location_rounded,
+                      size: 22,
+                      color: kDarkPurple,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _TunanetraMarker extends StatelessWidget {
+  final String name;
+
+  const _TunanetraMarker({
+    required this.name,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: kDarkPurple,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: Colors.white,
+              width: 1.2,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.18),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+        ),
+        const Icon(
+          Icons.location_on,
+          size: 36,
+          color: kPurple,
+        ),
+      ],
+    );
+  }
+}
+
+// =====================================================================
+//  PETA LOADING FALLBACK (memakai ilustrasi lama saat memuat)
+// =====================================================================
+class _MapLoadingFallback extends StatelessWidget {
+  const _MapLoadingFallback();
 
   @override
   Widget build(BuildContext context) {
@@ -483,12 +843,31 @@ class _MapCard extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             CustomPaint(painter: _MapPainter()),
-            const Align(
-              alignment: Alignment(0, -0.05),
-              child: Icon(
-                Icons.location_on,
-                size: 48,
-                color: kTextPurple,
+            Container(
+              color: Colors.black.withValues(alpha: 0.08),
+              child: const Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(
+                        color: kPurple,
+                        strokeWidth: 3,
+                      ),
+                    ),
+                    SizedBox(height: 10),
+                    Text(
+                      'Memuat peta...',
+                      style: TextStyle(
+                        color: kDarkPurple,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
