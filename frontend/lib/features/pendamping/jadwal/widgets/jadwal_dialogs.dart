@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/colors.dart';
-import 'jadwal_data.dart';
+import '../../../../core/colors.dart';
+import '../jadwal_data.dart';
 
 
 // =====================================================================

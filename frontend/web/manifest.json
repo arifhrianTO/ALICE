@@ -1,6 +1,6 @@
 {
-    "name": "alice_app",
-    "short_name": "alice_app",
+    "name": "ALICE",
+    "short_name": "ALICE",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
