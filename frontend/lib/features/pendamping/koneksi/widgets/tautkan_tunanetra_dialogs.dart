@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/colors.dart';
-import 'tautkan_tunanetra_data.dart';
+import '../../../../core/colors.dart';
+import '../tautkan_tunanetra_data.dart';
 
 // =====================================================================
 //  POP UP TAUTKAN TUNANETRA

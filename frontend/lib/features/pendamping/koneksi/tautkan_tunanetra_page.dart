@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/colors.dart';
 import 'tautkan_tunanetra_data.dart';
-import 'tautkan_tunanetra_dialogs.dart';
+import 'widgets/tautkan_tunanetra_dialogs.dart';
 
 // =====================================================================
 //  HALAMAN TAUTKAN TUNANETRA
