@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
-import 'auth/splash_page.dart';
-import 'beranda/beranda_page.dart';
 import 'core/colors.dart';
-import 'jadwal/jadwal_pages.dart';
-import 'koneksi/koneksi_page.dart';
-import 'profile/profile_page.dart';
-import 'tambah_tunanetra/tambah_tunanetra_page.dart';
-import 'widgets/bottom_bar.dart';
+import 'features/auth/splash_page.dart';
+import 'features/pendamping/beranda/beranda_page.dart';
+import 'features/pendamping/jadwal/jadwal_page.dart';
+import 'features/pendamping/koneksi/koneksi_page.dart';
+import 'features/pendamping/koneksi/tautkan_tunanetra_page.dart';
+import 'features/pendamping/profile/profile_page.dart';
+import 'features/pendamping/widgets/bottom_bar.dart';
 
 void main() {
   runApp(const AliceApp());

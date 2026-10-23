@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../main.dart';
+import '../../main.dart';
 import '../tunanetra/voice_page.dart';
 import 'email_login_page.dart';
 import 'role_page.dart';

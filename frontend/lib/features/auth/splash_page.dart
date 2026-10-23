@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../core/colors.dart';
-import '../main.dart';
+
+import '../../core/colors.dart';
+import '../../main.dart';
+import '../../widgets/alice_logo.dart';
 import '../tunanetra/voice_page.dart';
-import '../widgets/alice_logo.dart';
 import 'role_page.dart';
 
 /// Alur awal aplikasi:
