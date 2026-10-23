@@ -1,0 +1,19 @@
+# Backend & Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+backend/bin/
+backend/dist/
+
+# IDE & Editors
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# OS & Logs
+.DS_Store
+Thumbs.db
+*.log

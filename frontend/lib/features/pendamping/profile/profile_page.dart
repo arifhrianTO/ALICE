@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../auth/role_page.dart';
-import '../core/colors.dart';
+import '../../../core/colors.dart';
+import '../../auth/role_page.dart';
 
 const _kPinkButton = Color(0xFFFFDAD6);
 const _kRed = Color(0xFFE50000);

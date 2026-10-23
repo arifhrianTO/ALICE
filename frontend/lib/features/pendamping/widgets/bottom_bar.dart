@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../core/colors.dart';
+import '../../../core/colors.dart';
 
 // =====================================================================
 //  BOTTOM NAVBAR (dengan animasi)
@@ -210,5 +210,3 @@ class _NavItem extends StatelessWidget {
     );
   }
 }
-
-

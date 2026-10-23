@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../core/colors.dart';
-import '../main.dart';
+
+import '../../core/colors.dart';
+import '../../main.dart';
 import '../tunanetra/voice_page.dart';
 
 /// Form login/registrasi dengan email.
@@ -142,7 +143,6 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
                 style: const TextStyle(color: Colors.white),
                 decoration: _dec('Email', Icons.email_outlined),
               ),
-              const SizedBox(height: 14),
               TextField(
                 controller: passC,
                 obscureText: true,

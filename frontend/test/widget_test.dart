@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:alice_app/auth/login_page.dart';
-import 'package:alice_app/beranda/tunanetra_location.dart';
+import 'package:alice_app/features/auth/login_page.dart';
+import 'package:alice_app/features/pendamping/beranda/tunanetra_location.dart';
 
 void main() {
   test('TunanetraLocation fromJson parses correctly', () {

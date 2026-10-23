@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import '../../core/colors.dart';
+import '../../core/text.dart';
 import '../auth/role_page.dart';
-import '../core/colors.dart';
-import '../core/text.dart';
-import '../widgets/chat_bubble.dart';
-import '../widgets/mic_button.dart';
-import '../widgets/waveform.dart';
+import 'widgets/chat_bubble.dart';
+import 'widgets/mic_button.dart';
+import 'widgets/waveform.dart';
 
 class VoicePage extends StatefulWidget {
   const VoicePage({super.key});

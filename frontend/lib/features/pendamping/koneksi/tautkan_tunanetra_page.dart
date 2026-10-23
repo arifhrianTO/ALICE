@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../core/colors.dart';
-import '../widgets/avatar.dart';
-import 'tambah_tunanetra_data.dart';
-import 'tambah_tunanetra_dialogs.dart';
+import '../../../core/colors.dart';
+import 'tautkan_tunanetra_data.dart';
+import 'tautkan_tunanetra_dialogs.dart';
 
 // =====================================================================
 //  HALAMAN TAUTKAN TUNANETRA
@@ -277,7 +276,7 @@ class _TunanetraCard extends StatelessWidget {
               shape: BoxShape.circle,
               border: Border.all(color: kPurple, width: 1),
             ),
-            child: const Avatar(radius: 30),
+            child: const _Avatar(radius: 30),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -545,6 +544,20 @@ class _PageNav extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _Avatar extends StatelessWidget {
+  final double radius;
+  const _Avatar({required this.radius});
+
+  @override
+  Widget build(BuildContext context) {
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: kLightPurple,
+      child: Icon(Icons.person, size: radius * 1.3, color: kDarkPurple),
     );
   }
 }
