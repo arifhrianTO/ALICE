@@ -40,7 +40,9 @@ func main() {
 
 	// 3. Rakit router.
 	//    Semua pendaftaran endpoint ada di internal/server, bukan di sini.
-	router := server.Setup(db, cfg.AppEnv)
+	//    Seluruh konfigurasi diteruskan karena di dalamnya dibutuhkan
+	//    APP_ENV (mode debug) dan SESSION_TTL_HOURS (umur token login).
+	router := server.Setup(db, cfg)
 
 	// 4. Nyalakan server
 	log.Printf("Server berjalan di http://localhost:%s", cfg.AppPort)
