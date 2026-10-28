@@ -1,4 +1,4 @@
-package models
+package tunanetra
 
 type Tunanetra struct {
 	ID          string  `json:"id"`

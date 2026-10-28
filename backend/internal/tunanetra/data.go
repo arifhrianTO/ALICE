@@ -1,8 +1,6 @@
-package data
+package tunanetra
 
-import "alice-backend/internal/models"
-
-var DummyTunanetra = []models.Tunanetra{
+var DummyTunanetra = []Tunanetra{
 	{
 		ID:          "tn-1",
 		Name:        "Budi Santoso",

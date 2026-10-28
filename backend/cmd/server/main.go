@@ -1,19 +1,50 @@
+// Command server adalah pintu masuk program.
+//
+// Padanan Laravel: `public/index.php` + `bootstrap/app.php`.
+//
+// Tugasnya cuma menyambung bagian-bagian, tidak berisi logika bisnis:
+//  1. baca konfigurasi
+//  2. sambung ke database
+//  3. rakit router
+//  4. nyalakan server
 package main
 
 import (
+	"context"
 	"log"
-	"net/http"
+	"time"
 
-	"alice-backend/internal/handlers"
-	"alice-backend/internal/middleware"
+	"alice-backend/internal/server"
+	"alice-backend/internal/shared/config"
+	"alice-backend/internal/shared/database"
 )
 
 func main() {
-	mux := http.NewServeMux()
+	// 1. Baca konfigurasi
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("konfigurasi tidak valid: %v", err)
+	}
 
-	mux.HandleFunc("/api/hello", middleware.EnableCORS(handlers.HelloHandler))
-	mux.HandleFunc("/api/tunanetra", middleware.EnableCORS(handlers.TunanetraHandler))
+	// 2. Sambung ke database
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-	log.Println("Server berjalan di http://localhost:8080")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	db, err := database.Connect(ctx, cfg.DSN())
+	if err != nil {
+		log.Fatalf("gagal konek ke database: %v", err)
+	}
+	defer db.Close()
+
+	log.Println("Database: TERSAMBUNG")
+
+	// 3. Rakit router.
+	//    Semua pendaftaran endpoint ada di internal/server, bukan di sini.
+	router := server.Setup(db, cfg.AppEnv)
+
+	// 4. Nyalakan server
+	log.Printf("Server berjalan di http://localhost:%s", cfg.AppPort)
+	if err := router.Run(":" + cfg.AppPort); err != nil {
+		log.Fatalf("server berhenti: %v", err)
+	}
 }
