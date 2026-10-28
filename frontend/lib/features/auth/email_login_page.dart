@@ -1,6 +1,9 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/api_config.dart';
 import '../../core/colors.dart';
 import '../../main.dart';
 import '../tunanetra/voice_page.dart';
@@ -58,29 +61,56 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
     });
 
     try {
+      final endpoint = isRegister ? '/api/auth/register' : '/api/auth/login';
+      final url = Uri.parse('${ApiConfig.baseUrl}$endpoint');
+      final body = isRegister
+          ? {
+              'name': name,
+              'email': email,
+              'password': pass,
+              'role': widget.role,
+            }
+          : {
+              'email': email,
+              'password': pass,
+            };
+
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        final msg = data['message'] as String? ??
+            'Permintaan gagal (${response.statusCode})';
+        setState(() => error = msg);
+        return;
+      }
+
+      final payload = data['data'] as Map<String, dynamic>? ?? {};
+      final user = payload['user'] as Map<String, dynamic>? ?? {};
+      final token = payload['token'] as String? ?? '';
+      final userName = user['name'] as String? ?? name;
+      final userEmail = user['email'] as String? ?? email;
+      final userRole = user['role'] as String? ?? widget.role;
+
       // Simpan sesi login lokal ke SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isLoggedIn', true);
-      await prefs.setString('user_role', widget.role);
-      await prefs.setString(
-        'user_name',
-        name.isNotEmpty
-            ? name
-            : (widget.role == 'tunanetra' ? 'Ahmad Pratama' : 'Budi Santoso'),
-      );
-      await prefs.setString(
-        'user_email',
-        email.isNotEmpty
-            ? email
-            : (widget.role == 'tunanetra'
-                ? 'ahmad@example.com'
-                : 'BudiSantoso@gmail.com'),
-      );
+      await prefs.setString('session_token', token);
+      await prefs.setString('user_role', userRole);
+      await prefs.setString('user_name', userName);
+      await prefs.setString('user_email', userEmail);
 
       if (!mounted) return;
 
       // Navigasi sesuai role
-      if (widget.role == 'tunanetra') {
+      if (userRole == 'tunanetra') {
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (_) => const VoicePage()),
@@ -94,7 +124,7 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
         );
       }
     } catch (e) {
-      setState(() => error = 'Terjadi kesalahan saat menyimpan sesi.');
+      setState(() => error = 'Gagal menghubungi server. Pastikan backend berjalan.');
     } finally {
       if (mounted) setState(() => loading = false);
     }

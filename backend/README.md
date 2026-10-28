@@ -2,11 +2,12 @@
 
 Server API untuk aplikasi ALICE. Ditulis dengan bahasa **Go**, memakai database **PostgreSQL**.
 
-> **Status: FONDASI SELESAI (M0).** Konfigurasi, koneksi PostgreSQL, router Gin,
-> `/api/health`, model, dan Makefile sudah jalan. Yang belum: fitur aplikasi.
-> File yang masih kerangka ditandai **KERANGKA** di peta folder:
-> `auth_service.go` dan `user_repository.go`.
-> Belum ada satu pun endpoint login/register.
+> **Status: M0 + M1 (register & login) SELESAI.** Konfigurasi, koneksi PostgreSQL,
+> router Gin, `/api/health`, `POST /api/auth/register`, dan `POST /api/auth/login`
+> sudah jalan dan teruji sungguhan. Yang belum: proteksi token (M2) dan
+> penyambungan ke Flutter.
+> Satu file masih kerangka, ditandai **KERANGKA** di peta folder:
+> `internal/shared/middleware/auth.go`.
 
 ---
 
@@ -34,43 +35,54 @@ Server API untuk aplikasi ALICE. Ditulis dengan bahasa **Go**, memakai database 
 |---|---|
 | Server HTTP | jalan di port dari `.env` (`8080`) |
 | Routing dasar | **Gin** (`github.com/gin-gonic/gin`) |
-| Endpoint | 3 buah: `GET /api/hello`, `GET /api/tunanetra`, `GET /api/health` |
+| Endpoint | 5 buah: 3 baca + register + login |
 | Middleware | CORS + Recovery + Logger (Gin) |
 | Konfigurasi | `.env` dibaca lewat `godotenv`, divalidasi di `shared/config/` |
 | Koneksi database | `pgxpool` + `Ping`, berhenti jelas kalau DB mati |
 | Makefile | ✅ pengganti `php artisan` |
-| Seeder | ✅ `make seed` |
+| Seeder | ✅ `make seed` (memperbarui akun uji & password bcrypt) |
 | Bentuk balasan API | ✅ `response.Response` untuk endpoint baru |
-| Data | **data dummy** (ditulis keras di kode, bukan dari database) |
+| Register & Login | ✅ `POST /api/auth/register` & `POST /api/auth/login` |
+| Data | **data dummy** untuk `/api/tunanetra` (belum dari database) |
 
 ### Belum ada
 
 | Hal | Keterangan |
 |---|---|
-| Fitur login / register | belum ada |
 | Middleware auth | kerangka ada, isinya belum (`shared/middleware/auth.go`) |
-| Endpoint yang membaca tabel | belum ada (`/api/health` hanya `Ping`, tidak membaca tabel) |
+| Endpoint yang dilindungi token | `GET /api/auth/me`, `POST /api/auth/logout` (M2) |
+| `/api/tunanetra` dari database | masih data dummy |
+| Penyambungan auth ke Flutter | ✅ `email_login_page.dart` sudah panggil `/api/auth/register` & `/api/auth/login` |
 | Bentuk database di repo | ❌ tidak disimpan (lihat bagian 4) |
 
-**Kesimpulan:** fondasi sudah berdiri, database tersambung, API sudah memakai
-Gin, dan `/api/health` sudah terbukti menjawab jujur soal database. Tapi belum
-ada satu pun fitur yang membaca isi tabel. Datanya masih palsu.
+**Kesimpulan:** fondasi berdiri, autentikasi inti (daftar & masuk) selesai dan
+teruji. Langkah selanjutnya adalah proteksi endpoint dengan middleware token (M2).
 
-### Kerangka file yang belum diisi
+### Satu file yang masih kerangka
 
-`internal/user/repository.go` dan `internal/auth/service.go` masih **berisi file
-kerangka (stub)**. Isinya hanya nama fungsi dan komentar `TODO` yang menjelaskan
-apa yang nanti dikerjakan di situ — **belum ada implementasi**.
+Tinggal `internal/shared/middleware/auth.go`. Isinya baru nama fungsi dan
+komentar `TODO` tentang rencana M2. Sekarang dia selalu menjawab `501`, supaya
+tidak ada endpoint yang dikira sudah terlindungi padahal belum.
 
-Yang **sudah** diimplementasikan: `internal/shared/config/config.go` dan
-`internal/shared/database/postgres.go`.
+Yang **sudah** berisi implementasi penuh:
 
-Fungsi kerangka yang tersisa masih mengembalikan error `belum diimplementasikan`.
-Jadi kalau sekarang ada yang memanggilnya, kegagalannya kelihatan jelas, bukan
-diam-diam mengembalikan nilai kosong yang menyesatkan.
+| Berkas | Isi |
+|---|---|
+| `shared/config/config.go` | baca `.env` |
+| `shared/database/postgres.go` | buka connection pool |
+| `user/repository.go` | SQL tabel `user` + tabel profilnya |
+| `auth/repository.go` | SQL tabel `session` |
+| `auth/service.go` | aturan bisnis pendaftaran |
+| `auth/dto.go`, `auth/handler.go` | bentuk JSON + lapisan HTTP |
 
-Belum ada satu pun fungsi kerangka itu yang dipanggil dari `main.go`, jadi server
-tetap berjalan normal.
+### Tombol "Masuk" dan "Daftar" di Flutter sudah tersambung
+
+`frontend/lib/features/auth/email_login_page.dart` **sudah memanggil backend**.
+- Mode daftar (`isRegister == true`) memanggil `POST /api/auth/register`.
+- Mode masuk (`isRegister == false`) memanggil `POST /api/auth/login`.
+- Alamat baseUrl diambil dari `core/api_config.dart` (`http://localhost:8080` untuk desktop/web atau `http://10.0.2.2:8080` untuk emulator Android).
+- Bila sukses: token disimpan ke `SharedPreferences` (`session_token`) bersama `user_role`, `user_name`, dan `user_email`.
+- Bila gagal: pesan error dari API langsung ditampilkan di bawah kolom isian.
 
 ---
 
@@ -187,13 +199,16 @@ backend/
 │   │   ├── model.go             ← bentuk data yang dikirim ke klien
 │   │   └── data.go              ← SEMENTARA: data dummy, akan dihapus
 │   │
-│   ├── user/                    ← FITUR
+│   ├── user/                    ← FITUR: tabel "user" + tabel profilnya
 │   │   ├── model.go             ← ✅ cerminan tabel "user"
-│   │   └── repository.go        ← KERANGKA: kontrak SQL tabel user & session
+│   │   └── repository.go        ← ✅ SQL tabel user, companion, visually_impaired
 │   │
-│   └── auth/                    ← FITUR
-│       └── service.go           ← KERANGKA: logika daftar & masuk
-│           (M1 menambah: handler.go, repository.go, dto.go)
+│   └── auth/                    ← FITUR: daftar, masuk, keluar
+│       ├── model.go             ← ✅ cerminan tabel "session"
+│       ├── repository.go        ← ✅ SQL tabel session
+│       ├── service.go           ← ✅ aturan bisnis: validasi, bcrypt, token
+│       ├── dto.go               ← ✅ bentuk JSON permintaan & balasan
+│       └── handler.go           ← ✅ handler HTTP
 │
 ├── Makefile                     ← ✅ pengganti `php artisan`
 ├── .editorconfig                ← pengaturan dasar editor
@@ -628,11 +643,15 @@ Karena `pgxpool` bersifat *lazy*, `Ping` wajib: tanpa itu server bisa
 
 | Isi | Keterangan |
 |---|---|
-| `func Setup(db *pgxpool.Pool, appEnv string) *gin.Engine` | rakit router Gin, pasang Logger + Recovery + CORS, daftarkan 3 endpoint |
+| `func Setup(db *pgxpool.Pool, cfg *config.Config) *gin.Engine` | rakit router Gin + seluruh dependency, pasang Logger + Recovery + CORS, daftarkan 4 endpoint |
 | `r.NoRoute` | endpoint tak dikenal → 404 JSON |
 | `r.NoMethod` | method salah → 405 JSON (bukan 404) |
 | `r.Group("/api")` | semua endpoint berawalan `/api` |
+| blok "Perakitan dependency" | repository → service → handler, disambung terang-terangan |
 | blok komentar | daftar endpoint M1/M2 yang belum dibuat, dikomentari |
+
+Signature `Setup` berubah dari `(db, appEnv string)` menjadi `(db, cfg)`: dia
+sekarang juga butuh `SESSION_TTL_HOURS` untuk menentukan umur token login.
 
 Catatan: `gin.SetMode(gin.ReleaseMode)` dipakai saat `APP_ENV=production`,
 supaya log debug tidak berisik.
@@ -709,22 +728,105 @@ database.
 | `func Auth() gin.HandlerFunc` | TODO: baca `Authorization: Bearer`, cari di tabel `session`, simpan `user_id` ke context |
 | sekarang | selalu menjawab `501`, supaya tidak ada endpoint yang dikira sudah terlindungi |
 
-#### `internal/user/repository.go`
+#### `internal/user/repository.go` — ✅ sudah berfungsi
 
 | Isi | Keterangan |
 |---|---|
-| `type UserRepository interface` | kontrak akses tabel `user`. TODO: `FindByEmail`, `FindByID`, `Create` |
-| `type SessionRepository interface` | kontrak akses tabel `session`. TODO: `Create`, `FindByToken`, `Delete` |
-| `type postgresUserRepository struct` | implementasi asli. TODO: simpan `pool`, tulis query SQL-nya |
+| `type Repository interface` | kontrak akses tabel pengguna |
+| `FindByEmail(ctx, email)` | cari pengguna; kalau tidak ada → `(nil, nil)`, bukan error. Disiapkan untuk login |
+| `Create(ctx, u *User)` | simpan `user` **+ baris profilnya** dalam **satu transaksi** |
+| `NewRepository(pool)` | constructor (dependency injection) |
+| `var ErrEmailTaken` | terjemahan dari kode PostgreSQL `23505` (`unique_violation`) |
+| `isUniqueViolation(err)` | memeriksa kode `23505` lewat `errors.As` |
+| `profileInsertQuery(role)` | pilih tabel profil: `pendamping` → `companion`, `tunanetra` → `visually_impaired` |
 
-#### `internal/auth/service.go`
+Dua keputusan yang disengaja:
+
+1. **Tidak ada `SELECT` pendahulu** untuk memeriksa email kembar. Pengecekan
+   diserahkan ke aturan `UNIQUE` milik database, lalu penolakannya diterjemahkan
+   menjadi `ErrEmailTaken`. Cara ini kebal "balapan": dua orang yang mendaftar
+   dengan email sama pada milidetik yang sama tetap tertangkap, sedangkan
+   pengecekan manual bisa sama-sama lolos.
+2. **Satu transaksi** untuk dua tabel. Kalau penyimpanan profil gagal, baris
+   `user` ikut batal — tidak akan lahir "pengguna tanpa profil".
+
+Nama `Repository` saja (bukan `UserRepository`) karena nama package-nya sudah
+`user`. Dibaca lengkap menjadi `user.Repository`.
+
+#### `internal/auth/model.go` — ✅ sudah berfungsi
 
 | Isi | Keterangan |
 |---|---|
-| `type AuthService struct` | TODO: isi dengan `UserRepository`, `SessionRepository`, `ttl` |
-| `func NewAuthService() *AuthService` | TODO: terima repository sebagai parameter (dependency injection) |
-| `func (s *AuthService) Login(email, password string) (string, error)` | TODO: cari user → cocokkan bcrypt → buat token → simpan session |
-| `func (s *AuthService) Register(name, email, password, role string) error` | TODO: validasi → hash password → simpan user + tabel sesuai role |
+| `type Session struct` | cerminan tabel `session` (satu baris = satu perangkat yang login) |
+| `func (s *Session) IsExpired() bool` | apakah sesi sudah lewat batas waktunya |
+
+Tabel `session` ditaruh di fitur `auth`, bukan `user`. Alasannya pertanyaan
+kepemilikan: *"kalau fitur ini dihapus, apakah barang ini ikut terhapus?"*
+Tabel `session` ada **hanya** karena ada login — jadi dia milik `auth`.
+
+#### `internal/auth/repository.go` — ✅ sudah berfungsi
+
+| Isi | Keterangan |
+|---|---|
+| `type SessionRepository interface` | kontrak akses tabel `session` |
+| `Create(ctx, s *Session)` | simpan sesi login |
+| `NewSessionRepository(pool)` | constructor |
+
+Kolom `request_at` sengaja **tidak** diisi: database sudah punya nilai bawaan
+`CURRENT_TIMESTAMP`.
+
+#### `internal/auth/service.go` — ✅ sudah berfungsi
+
+| Isi | Keterangan |
+|---|---|
+| `const PasswordMinLength = 6` | sama dengan aturan di Flutter — tapi tetap diperiksa di sini, karena pemeriksaan di klien bisa dilewati |
+| `const bcryptCost` | `bcrypt.DefaultCost` (10), sama dengan seeder |
+| `var emailPattern` | pola bentuk email; dikompilasi **sekali** di luar fungsi |
+| `type ValidationError` | error berpesan ramah-pengguna (dipakai untuk `400`) |
+| `var ErrEmailTaken` | error milik `auth`; diterjemahkan dari `user.ErrEmailTaken` |
+| `type Service struct` | menyimpan 2 repository + `ttl`. Tidak ada variabel global |
+| `func NewService(users, sessions, ttl)` | constructor — dependency injection tanpa framework |
+| `func (s *Service) Register(ctx, in)` | validasi → hash bcrypt → simpan → buat token → simpan sesi |
+| `func validateRegister(in)` | memeriksa **sekaligus merapikan** (`TrimSpace`, email jadi huruf kecil) |
+| `func newToken()` | 32 byte acak dari `crypto/rand`, ditulis jadi 64 huruf heksadesimal |
+
+Dua catatan penting:
+
+- **Password tidak dirapikan** dengan `TrimSpace`. Spasi di awal atau akhir
+  password adalah bagian sah dari password itu sendiri; merapikannya diam-diam
+  membuat pengguna tidak bisa login padahal dia mengetik persis seperti saat
+  mendaftar.
+- **`crypto/rand`, bukan `math/rand`.** Angka dari `math/rand` bisa ditebak kalau
+  keadaan awalnya diketahui — untuk token login itu sama saja dengan pintu yang
+  tidak terkunci.
+
+#### `internal/auth/dto.go` — ✅ sudah berfungsi
+
+| Isi | Keterangan |
+|---|---|
+| `type RegisterRequest` | bentuk JSON yang diterima |
+| `type UserResponse` | data pengguna yang **aman** dikirim (tanpa password) |
+| `type RegisterResponse` | `user` + `token` + `expired_at` |
+
+Dipisah dari struct model karena arti field yang namanya sama bisa berbeda:
+`user.User.Password` berisi **hash**, sedangkan `RegisterRequest.Password`
+berisi **teks asli**. Menyatukan keduanya mengundang kebocoran hash.
+
+#### `internal/auth/handler.go` — ✅ sudah berfungsi
+
+| Isi | Keterangan |
+|---|---|
+| `type Handler struct` | menyimpan `*Service` |
+| `func (h *Handler) Register(c)` | `POST /api/auth/register` |
+| `func writeError(c, err)` | satu-satunya tempat yang tahu peta error → kode HTTP |
+
+Peta keputusannya:
+
+| Jenis error | Kode | Artinya bagi pemanggil |
+|---|---|---|
+| `ValidationError` | `400` | "isianmu salah, perbaiki" |
+| `ErrEmailTaken` | `409` | "email sudah dipakai, coba masuk saja" |
+| lainnya | `500` | "salah kami" — pesan asli hanya masuk log, tidak dikirim ke klien |
 
 #### `cmd/seed/main.go` — ✅ sudah berfungsi
 
@@ -888,6 +990,8 @@ saja**, dan mudah diperiksa langsung lewat `psql`.
 | GET | `/api/hello` | lama (`message`, `app`) | uji koneksi backend |
 | GET | `/api/tunanetra` | **array langsung** (dipakai Flutter) | daftar tunanetra (**data dummy**) |
 | GET | `/api/health` | baku (`success`, `message`, `data`) | status server + database |
+| POST | `/api/auth/register` | baku | daftar akun baru, langsung dapat token |
+| POST | `/api/auth/login` | baku | masuk dengan email & password, menerima token |
 
 Contoh `/api/health`:
 
@@ -908,37 +1012,119 @@ Kalau database mati, balasannya `503`:
 Endpoint yang tidak dikenal menjawab `404`, dan method yang salah menjawab
 `405` — keduanya JSON, bukan teks kosong.
 
-### Direncanakan
+### `POST /api/auth/register` — ✅ sudah ada
 
-| Method | Path | Keterangan |
-|---|---|---|
-| POST | `/api/auth/register` | daftar akun baru |
-| POST | `/api/auth/login` | masuk, menerima token |
-| POST | `/api/auth/logout` | mencabut token |
-| GET | `/api/auth/me` | data pengguna yang sedang login |
-| POST | `/api/auth/logout` | mencabut token |
-| GET | `/api/auth/me` | data pengguna yang sedang login |
+Daftar akun baru dengan email. Karena tombol di aplikasi berbunyi
+**"Daftar & Masuk"**, endpoint ini sekaligus membuat sesi login dan
+mengembalikan token — pengguna tidak perlu mengetik ulang email dan password.
 
-Permintaan login yang direncanakan:
-
-```json
-{ "email": "user@example.com", "password": "rahasia123" }
-```
-
-Balasan berhasil:
+Badan permintaan:
 
 ```json
 {
-  "token": "a1b2c3d4...",
-  "expired_at": "2026-10-29T10:00:00Z",
-  "user": { "user_id": "...", "name": "Budi", "role": "pendamping" }
+  "name": "Budi Santoso",
+  "email": "BudiSantoso@gmail.com",
+  "password": "rahasia123",
+  "role": "pendamping"
 }
 ```
+
+`role` hanya menerima dua nilai, sama dengan enum `user_role`:
+`"pendamping"` atau `"tunanetra"`.
+
+Balasan berhasil (`201 Created`):
+
+```json
+{
+  "success": true,
+  "message": "registrasi berhasil",
+  "data": {
+    "user": {
+      "user_id": "bf0b2bf3-af32-43e1-9efa-614ae0c2e7d8",
+      "name": "Budi Santoso",
+      "email": "budi.santoso@gmail.com",
+      "role": "pendamping"
+    },
+    "token": "cfa94de1214f5ab5570d141db47272f2...",
+    "expired_at": "2026-10-29T15:22:46+07:00"
+  }
+}
+```
+
+Perhatikan `data.user`: email `BudiSantoso@gmail.com` tersimpan dan dibalas
+sebagai huruf kecil, dan nama `"  Budi Santoso  "` sudah dirapikan lebih dulu.
+
+Balasan gagal:
+
+| Kode | Pesan | Sebab |
+|---|---|---|
+| `400` | `nama lengkap wajib diisi` | `name` kosong atau hanya berisi spasi |
+| `400` | `email wajib diisi` | `email` kosong |
+| `400` | `format email tidak valid` | `email` tidak berbentuk alamat email |
+| `400` | `password minimal 6 karakter` | `password` terlalu pendek |
+| `400` | `peran harus "pendamping" atau "tunanetra"` | `role` berisi nilai lain |
+| `400` | `format JSON tidak valid` | badan permintaan bukan JSON yang sah |
+| `409` | `email sudah terdaftar` | email sudah dipakai akun lain |
+| `500` | `terjadi kesalahan pada server` | kesalahan di sisi kita; rinciannya hanya masuk log |
+
+Contoh gagal:
+
+```json
+{ "success": false, "message": "email sudah terdaftar" }
+```
+
+### `POST /api/auth/login` — ✅ sudah ada
+
+Masuk dengan email dan password, menerima session token.
+
+Badan permintaan:
+
+```json
+{
+  "email": "pendamping@example.com",
+  "password": "password123"
+}
+```
+
+Balasan berhasil (`200 OK`):
+
+```json
+{
+  "success": true,
+  "message": "login berhasil",
+  "data": {
+    "user": {
+      "user_id": "69fe7760-540b-4280-a245-c24ff4e1eaff",
+      "name": "Pengguna Pendamping",
+      "email": "pendamping@example.com",
+      "role": "pendamping"
+    },
+    "token": "7ab3325763d0cdb29b5b3027de1826671da1ed167b3832143b1b4e4d42bfc858",
+    "expired_at": "2026-10-29T16:45:59+07:00"
+  }
+}
+```
+
+Balasan gagal:
+
+| Kode | Pesan | Sebab |
+|---|---|---|
+| `400` | `email dan password wajib diisi` | salah satu atau kedua field kosong |
+| `400` | `format JSON tidak valid` | badan permintaan bukan JSON sah |
+| `401` | `email atau password salah` | email tidak terdaftar atau password tidak cocok |
+| `500` | `terjadi kesalahan pada server` | kesalahan database / internal server |
+
+### Direncanakan (M2)
+
+| Method | Path | Keterangan |
+|---|---|---|
+| POST | `/api/auth/logout` | mencabut token |
+| GET | `/api/auth/me` | data pengguna yang sedang login |
 
 Endpoint yang butuh login akan memakai header:
 
 ```text
-Authorization: Bearer a1b2c3d4...
+Authorization: Bearer <session_token>
 ```
 
 ---
@@ -1029,7 +1215,8 @@ harus sama persis.
 |---|---|---|
 | **M0 — Fondasi** | rapikan struktur, `.env` + `.env.example`, `shared/config`, `shared/database`, `server/routes.go`, `GET /api/health` | `curl /api/health` → `{"status":"ok","database":"connected"}` |
 | **M0.5 — Struktur per fitur** | ubah pengelompokan dari *per lapisan* jadi *per fitur* + `shared/` | `make check` lolos; semua endpoint berperilaku identik sebelum & sesudah |
-| **M1 — Auth inti** | `POST /api/auth/register`, `POST /api/auth/login`, bcrypt, simpan session | berhasil login dan menerima token |
+| **M1a — Register** | `POST /api/auth/register`, bcrypt, transaksi 2 tabel, token sesi | daftar lewat `curl` → `201` + token, dan datanya benar di database |
+| **M1b — Login** | `POST /api/auth/login` | berhasil masuk dan menerima token |
 | **M2 — Proteksi** | `shared/middleware/auth.go`, `GET /api/auth/me`, `POST /api/auth/logout` | token bisa dipakai & dicabut |
 | **M3 — Sambung frontend** | ubah `email_login_page.dart` yang masih palsu, simpan token | login dari Flutter benar-benar memanggil backend |
 | **M4 — Opsional** | Google / Facebook OAuth asli | — |
@@ -1053,7 +1240,62 @@ harus sama persis.
 | `.editorconfig` | ✅ |
 | Skema tersimpan di repo | ❌ (dihapus atas keputusan, lihat bagian 4) |
 
-Berikutnya: **M1 — register & login**.
+### Progres M1a (register) — ✅ SELESAI
+
+| Janji | Status |
+|---|---|
+| `internal/user/repository.go` (SQL + transaksi) | ✅ |
+| `internal/auth/model.go` (tabel `session`) | ✅ |
+| `internal/auth/repository.go` (SQL session) | ✅ |
+| `internal/auth/service.go` (validasi, bcrypt, token) | ✅ |
+| `internal/auth/dto.go` (bentuk JSON) | ✅ |
+| `internal/auth/handler.go` (HTTP, 400/409/500) | ✅ |
+| `POST /api/auth/register` terdaftar di `server/routes.go` | ✅ |
+| Diuji: 9 skenario lewat `curl` | ✅ semua sesuai harapan |
+| Diuji: isi database sesudahnya (`user` + profil + `session`) | ✅ |
+| Diuji: hash bcrypt benar-benar cocok dengan password | ✅ |
+| Penyambungan ke Flutter | ❌ belum (M3) |
+
+Bukti uji yang sudah dijalankan:
+
+| Skenario | Hasil |
+|---|---|
+| Daftar pendamping, nama berlebih spasi, email huruf besar-kecil | `201` + token; tersimpan `Budi Santoso` / `budi.uji@example.com` |
+| Daftar ulang dengan email sama (huruf kecil semua) | `409 email sudah terdaftar` |
+| Password 5 karakter | `400 password minimal 6 karakter` |
+| Email yang bukan berbentuk email | `400 format email tidak valid` |
+| Nama hanya berisi spasi | `400 nama lengkap wajib diisi` |
+| Peran `admin` | `400 peran harus "pendamping" atau "tunanetra"` |
+| Badan permintaan bukan JSON | `400 format JSON tidak valid` |
+| Daftar tunanetra | `201`; masuk ke `visually_impaired`, **bukan** `companion` |
+| `GET` ke endpoint register | `405 method tidak didukung` |
+| Hash tersimpan, diuji dengan library bcrypt | menerima `rahasia123`, menolak `password-salah` |
+| Baris `session` sesudah daftar | ada, umur ±24 jam sesuai `SESSION_TTL_HOURS` |
+
+### Progres M1b (login) — ✅ SELESAI
+
+| Janji | Status |
+|---|---|
+| `internal/auth/service.go` (`Login` method + `ErrInvalidCredentials`) | ✅ |
+| `internal/auth/dto.go` (`LoginRequest`, `LoginResponse`) | ✅ |
+| `internal/auth/handler.go` (`Login` handler + 401 response) | ✅ |
+| `POST /api/auth/login` terdaftar di `server/routes.go` | ✅ |
+| Seeder `make seed` diperbarui untuk hash `password123` | ✅ |
+| Diuji: 7 skenario lewat `curl` | ✅ semua lolos |
+
+Bukti uji yang sudah dijalankan:
+
+| Skenario | Hasil |
+|---|---|
+| Login valid `pendamping@example.com` | `200` + user data + token sesi |
+| Login valid case-insensitive `USER1@GMAIL.COM` | `200` + user data + token sesi |
+| Password salah | `401 email atau password salah` |
+| Email tidak terdaftar | `401 email atau password salah` (pesan sama persis, anti-enumerasi) |
+| Email / password kosong | `400 email dan password wajib diisi` |
+| Format bukan JSON | `400 format JSON tidak valid` |
+| Method GET | `405 method tidak didukung untuk endpoint ini` |
+
+Berikutnya: **M2 — Proteksi Token (`shared/middleware/auth.go`, `/api/auth/me`, `/api/auth/logout`)**.
 
 ### Keputusan teknis yang sudah diambil
 
