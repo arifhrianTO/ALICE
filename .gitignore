@@ -6,6 +6,14 @@
 backend/bin/
 backend/dist/
 
+# Secrets (JANGAN pernah di-commit)
+backend/.env
+.env
+
+# Artefak build Flutter (1,3 GB: build/ + .dart_tool/)
+# Sisa dari struktur lama, tidak ada lib/ dan pubspec.yaml.
+frontend/alice_app/
+
 # IDE & Editors
 .vscode/
 .idea/

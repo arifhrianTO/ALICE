@@ -1,0 +1,28 @@
+# EditorConfig -- pengaturan dasar editor, supaya semua orang menulis
+# dengan format yang sama tanpa perlu mengatur ulang.
+#
+# Didukung VS Code, GoLand, Neovim, dan sebagian besar editor lain.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.go]
+# Go WAJIB memakai TAB. Ini bukan selera: `gofmt` akan menolak format lain.
+indent_style = tab
+
+[Makefile]
+# Makefile juga WAJIB TAB. Lihat bagian "Jebakan" di README.
+indent_style = tab
+
+[*.{yml,yaml,json,md}]
+indent_style = space
+indent_size = 2
+
+[*.md]
+# Spasi di akhir baris pada Markdown kadang disengaja (untuk baris baru).
+trim_trailing_whitespace = false
