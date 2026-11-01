@@ -40,6 +40,10 @@ type User struct {
 
 	AuthProvider string `json:"auth_provider"`
 	Name         string `json:"name"`
+
+	// Profil pendamping (dari tabel companion)
+	PhoneNumber string `json:"phone_number,omitempty"`
+	Address     string `json:"address,omitempty"`
 }
 
 // Soal `json:"-"` pada Password:

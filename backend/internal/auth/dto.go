@@ -42,10 +42,12 @@ type RegisterRequest struct {
 // aman daripada menyerahkan struct User mentah-mentah lalu berharap tag
 // `json:"-"` tidak pernah terhapus.
 type UserResponse struct {
-	UserID string `json:"user_id"`
-	Name   string `json:"name"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
+	UserID      string `json:"user_id"`
+	Name        string `json:"name"`
+	Email       string `json:"email"`
+	Role        string `json:"role"`
+	PhoneNumber string `json:"phone_number,omitempty"`
+	Address     string `json:"address,omitempty"`
 }
 
 // RegisterResponse adalah isi field `data` saat pendaftaran berhasil.

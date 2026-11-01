@@ -198,6 +198,8 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*RegisterResu
 		Password:     &hashStr,
 		Role:         clean.Role,
 		AuthProvider: user.AuthProviderEmail,
+		PhoneNumber:  strings.TrimSpace(in.PhoneNumber),
+		Address:      strings.TrimSpace(in.Address),
 	}
 
 	if err := s.users.Create(ctx, user.CreateInput{

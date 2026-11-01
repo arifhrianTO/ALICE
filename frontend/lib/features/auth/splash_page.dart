@@ -5,12 +5,14 @@ import '../../core/colors.dart';
 import '../../main.dart';
 import '../../widgets/alice_logo.dart';
 import '../tunanetra/voice_page.dart';
+import 'onboarding_page.dart';
 import 'role_page.dart';
 
 /// Alur awal aplikasi:
 /// Splash screen -> Cek sesi lokal:
 ///   - Jika sudah login -> langsung ke Beranda sesuai peran (VoicePage atau HomeShell)
-///   - Jika belum login -> ke RolePage (pilih peran)
+///   - Jika belum login & belum pernah onboarding -> ke OnboardingPage (hanya sekali)
+///   - Jika belum login & sudah pernah onboarding -> langsung ke RolePage (pilih peran)
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
 
@@ -33,6 +35,7 @@ class _SplashPageState extends State<SplashPage> {
       final prefs = await SharedPreferences.getInstance();
       final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
       final role = prefs.getString('user_role') ?? 'pendamping';
+      final hasSeenOnboarding = prefs.getBool('has_seen_onboarding') ?? false;
 
       if (!mounted) return;
 
@@ -49,10 +52,17 @@ class _SplashPageState extends State<SplashPage> {
           );
         }
       } else {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const RolePage()),
-        );
+        if (!hasSeenOnboarding) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const OnboardingPage()),
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const RolePage()),
+          );
+        }
       }
     } catch (_) {
       if (!mounted) return;
@@ -65,10 +75,13 @@ class _SplashPageState extends State<SplashPage> {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    return Scaffold(
       backgroundColor: AliceColors.primaryDark,
       body: Center(
-        child: AliceFullLogo(width: 220),
+        child: Semantics(
+          label: 'Logo ALICE',
+          child: const AliceFullLogo(width: 220),
+        ),
       ),
     );
   }

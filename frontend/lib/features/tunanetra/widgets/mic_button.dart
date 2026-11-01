@@ -11,7 +11,11 @@ class MicButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: listening ? 'Berhenti mendengarkan' : 'Tekan untuk bicara',
+      label: listening ? 'Berhenti mendengarkan suara' : 'Mulai bicara dengan ALICE',
+      hint: listening
+          ? 'Ketuk dua kali untuk menghentikan rekaman suara'
+          : 'Ketuk dua kali untuk mulai merekam suara Anda',
+      excludeSemantics: true,
       child: GestureDetector(
         onTap: onTap,
         child: Container(

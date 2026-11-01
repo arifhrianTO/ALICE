@@ -98,9 +98,11 @@ func (r *postgresRepository) FindByEmail(ctx context.Context, email string) (*Us
 	// Kalau memakai bintang, lalu suatu hari ada kolom baru bertipe aneh,
 	// query yang tadinya sehat bisa tiba-tiba gagal.
 	const query = `
-		SELECT user_id, role, email, password, auth_provider, name, provider_id
-		FROM "user"
-		WHERE email = $1`
+		SELECT u.user_id, u.role, u.email, u.password, u.auth_provider, u.name, u.provider_id,
+		       COALESCE(c.phone_number, ''), COALESCE(c.address, '')
+		FROM "user" u
+		LEFT JOIN public.companion c ON u.user_id = c.user_id
+		WHERE u.email = $1`
 
 	// "$1" adalah placeholder nilai. Nilainya dikirim terpisah lewat
 	// parameter kedua QueryRow, TIDAK ditempel ke dalam teks query.
@@ -114,6 +116,8 @@ func (r *postgresRepository) FindByEmail(ctx context.Context, email string) (*Us
 		&u.AuthProvider,
 		&u.Name,
 		&u.ProviderID,
+		&u.PhoneNumber,
+		&u.Address,
 	)
 
 	// ErrNoRows artinya query berjalan lancar tapi tidak ada barisnya.

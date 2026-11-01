@@ -77,10 +77,12 @@ func (h *Handler) Register(c *gin.Context) {
 	// bagi klien dan bagi alat pemantau.
 	c.JSON(http.StatusCreated, response.OK("registrasi berhasil", RegisterResponse{
 		User: UserResponse{
-			UserID: res.User.UserID,
-			Name:   res.User.Name,
-			Email:  email,
-			Role:   res.User.Role,
+			UserID:      res.User.UserID,
+			Name:        res.User.Name,
+			Email:       email,
+			Role:        res.User.Role,
+			PhoneNumber: res.User.PhoneNumber,
+			Address:     res.User.Address,
 		},
 		Token:     res.Token,
 		ExpiredAt: res.ExpiredAt,
@@ -111,10 +113,12 @@ func (h *Handler) Login(c *gin.Context) {
 
 	c.JSON(http.StatusOK, response.OK("login berhasil", LoginResponse{
 		User: UserResponse{
-			UserID: res.User.UserID,
-			Name:   res.User.Name,
-			Email:  email,
-			Role:   res.User.Role,
+			UserID:      res.User.UserID,
+			Name:        res.User.Name,
+			Email:       email,
+			Role:        res.User.Role,
+			PhoneNumber: res.User.PhoneNumber,
+			Address:     res.User.Address,
 		},
 		Token:     res.Token,
 		ExpiredAt: res.ExpiredAt,
