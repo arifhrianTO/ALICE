@@ -1,43 +1,48 @@
 package middleware
 
 import (
-	"errors"
 	"net/http"
+	"strings"
+
+	"alice-backend/internal/shared/response"
 
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ErrNotImplemented dikembalikan oleh fungsi kerangka di package ini.
-var ErrNotImplemented = errors.New("middleware: belum diimplementasikan")
-
-// Auth adalah satpam untuk endpoint yang butuh login.
-//
-// Padanan Laravel: middleware `auth:sanctum`.
-//
-// Status: KERANGKA (M2). Belum dipakai di `routes.go`.
-//
-// Rencana cara kerjanya:
-//
-//  1. Ambil header:      Authorization: Bearer a1b2c3d4...
-//  2. Pisahkan kata "Bearer" dari tokennya.
-//  3. Cari token itu di tabel `session` yang belum kedaluwarsa.
-//  4. Kalau tidak ada / kedaluwarsa -> tolak dengan 401.
-//  5. Kalau ada -> simpan user_id ke context, lalu lanjutkan:
-//     c.Set("user_id", session.UserID)
-//     c.Next()
-//
-// Kenapa token disimpan di tabel `session`, bukan JWT?
-// Karena token di database bisa DICABUT seketika (logout, akun diblokir).
-// JWT tidak bisa dicabut tanpa daftar hitam tambahan.
-func Auth() gin.HandlerFunc {
+// Auth memverifikasi token sesi dari header Authorization Bearer.
+func Auth(db *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// TODO (M2): ganti isi fungsi ini dengan langkah 1-5 di atas.
-		//
-		// Sementara ini selalu menolak, supaya tidak ada endpoint yang
-		// tanpa sengaja dianggap "sudah terlindungi" padahal belum.
-		c.AbortWithStatusJSON(http.StatusNotImplemented, gin.H{
-			"success": false,
-			"message": "middleware auth belum diimplementasikan",
-		})
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, response.Fail("token autentikasi tidak ditemukan"))
+			return
+		}
+
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, response.Fail("format Authorization harus Bearer <token>"))
+			return
+		}
+
+		token := strings.TrimSpace(parts[1])
+		if token == "" {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, response.Fail("token tidak boleh kosong"))
+			return
+		}
+
+		const query = `
+			SELECT user_id
+			FROM "session"
+			WHERE session_token = $1 AND expired_at > CURRENT_TIMESTAMP`
+
+		var userID string
+		if err := db.QueryRow(c.Request.Context(), query, token).Scan(&userID); err != nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, response.Fail("sesi tidak valid atau sudah kedaluwarsa"))
+			return
+		}
+
+		c.Set("user_id", userID)
+		c.Next()
 	}
 }

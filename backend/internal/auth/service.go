@@ -18,8 +18,10 @@ import (
 	"strings"
 	"time"
 
+	"alice-backend/internal/shared/audit"
 	"alice-backend/internal/user"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -121,12 +123,13 @@ var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 type Service struct {
 	users    user.Repository
 	sessions SessionRepository
+	pool     *pgxpool.Pool
 	ttl      time.Duration
 }
 
 // NewService merakit Service beserta seluruh kebutuhannya.
-func NewService(users user.Repository, sessions SessionRepository, ttl time.Duration) *Service {
-	return &Service{users: users, sessions: sessions, ttl: ttl}
+func NewService(users user.Repository, sessions SessionRepository, pool *pgxpool.Pool, ttl time.Duration) *Service {
+	return &Service{users: users, sessions: sessions, pool: pool, ttl: ttl}
 }
 
 // RegisterInput adalah data yang dibutuhkan untuk mendaftar.
@@ -247,10 +250,12 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (*LoginResult, error
 		return nil, err
 	}
 	if u == nil || u.Password == nil {
+		_ = audit.Record(ctx, s.pool, "anonymous", "LOGIN", "user", email, "FAILED")
 		return nil, ErrInvalidCredentials
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(*u.Password), []byte(password)); err != nil {
+		_ = audit.Record(ctx, s.pool, "anonymous", "LOGIN", "user", email, "FAILED")
 		return nil, ErrInvalidCredentials
 	}
 
@@ -267,6 +272,8 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (*LoginResult, error
 	if err := s.sessions.Create(ctx, session); err != nil {
 		return nil, err
 	}
+
+	_ = audit.Record(ctx, s.pool, u.UserID, "LOGIN", "user", u.UserID, "SUCCESS")
 
 	return &LoginResult{
 		User:      u,
