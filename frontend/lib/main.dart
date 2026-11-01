@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'core/colors.dart';
+import 'features/auth/onboarding_page.dart';
 import 'features/auth/splash_page.dart';
 import 'features/pendamping/beranda/beranda_page.dart';
 import 'features/pendamping/jadwal/jadwal_page.dart';
@@ -26,7 +27,9 @@ class AliceApp extends StatelessWidget {
         useMaterial3: true,
         scaffoldBackgroundColor: kBg,
       ),
-      home: const SplashPage(),
+      // Halaman 1 onboarding berisi logo ALICE, jadi tidak perlu SplashPage.
+      // Setelah halaman 3 selesai, otomatis pindah ke HomeShell.
+      home: const OnboardingPage(),
     );
   }
 }
