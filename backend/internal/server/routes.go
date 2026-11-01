@@ -85,6 +85,7 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) *gin.Engine {
 	authService := auth.NewService(
 		userRepo,
 		sessionRepo,
+		db,
 		time.Duration(cfg.SessionTTLHours)*time.Hour,
 	)
 
@@ -110,9 +111,9 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) *gin.Engine {
 		api.POST("/auth/register", authHandler.Register)
 		api.POST("/auth/login", authHandler.Login)
 
-		// --- M2: proteksi (belum dibuat) ---
-		// Butuh middleware.Auth(), contoh:
-		//   protected := api.Group("", middleware.Auth())
+		// --- M2: proteksi ---
+		// Butuh middleware.Auth(db), contoh:
+		//   protected := api.Group("", middleware.Auth(db))
 		//   protected.GET("/auth/me", authHandler.Me)
 		//   protected.POST("/auth/logout", authHandler.Logout)
 	}

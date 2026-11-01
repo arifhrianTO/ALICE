@@ -17,6 +17,8 @@ import (
 	"errors"
 	"fmt"
 
+	"alice-backend/internal/shared/database"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -117,59 +119,38 @@ func (r *postgresRepository) FindByEmail(ctx context.Context, email string) (*Us
 // gagal, baris "user" sudah terlanjur masuk — lahirlah pengguna tanpa
 // profil, dan semua kode yang mengira profilnya ada akan ikut rusak.
 func (r *postgresRepository) Create(ctx context.Context, u *User) error {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("mulai transaksi: %w", err)
-	}
+	return database.WithActor(ctx, r.pool, "anonymous", func(tx pgx.Tx) error {
+		const insertUser = `
+			INSERT INTO "user" (role, email, password, auth_provider, name)
+			VALUES ($1::user_role, $2, $3, $4::auth_provider_type, $5)
+			RETURNING user_id`
 
-	// Rollback dipanggil lewat `defer` supaya PASTI berjalan, termasuk
-	// kalau terjadi panic di tengah jalan. Kalau transaksinya sudah
-	// di-commit, panggilan ini tidak melakukan apa-apa.
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	// Tanda `::user_role` dan `::auth_provider_type` adalah cast (paksaan
-	// jenis). Kata "pendamping" hanyalah teks biasa bagi PostgreSQL;
-	// cast memberi tahu bahwa yang dimaksud adalah nilai enum user_role.
-	// Tanpa cast, PostgreSQL menolak dengan "column is of type user_role
-	// but expression is of type text".
-	const insertUser = `
-		INSERT INTO "user" (role, email, password, auth_provider, name)
-		VALUES ($1::user_role, $2, $3, $4::auth_provider_type, $5)
-		RETURNING user_id`
-
-	err = tx.QueryRow(ctx, insertUser,
-		u.Role, u.Email, u.Password, u.AuthProvider, u.Name,
-	).Scan(&u.UserID)
-	if err != nil {
-		// Di sini kita TIDAK melakukan "SELECT dulu, sudah ada tidak?".
-		// Kita biarkan database yang menjadi hakim lewat aturan UNIQUE,
-		// lalu menerjemahkan penolakannya.
-		//
-		// Kenapa begitu? Karena pengecekan manual punya celah balapan:
-		// dua orang mendaftar dengan email sama pada milidetik yang sama
-		// bisa sama-sama lolos pengecekan, lalu tetap bentrok saat
-		// disimpan. Aturan UNIQUE tidak punya celah itu.
-		if isUniqueViolation(err) {
-			return ErrEmailTaken
+		err := tx.QueryRow(ctx, insertUser,
+			u.Role, u.Email, u.Password, u.AuthProvider, u.Name,
+		).Scan(&u.UserID)
+		if err != nil {
+			if isUniqueViolation(err) {
+				return ErrEmailTaken
+			}
+			return fmt.Errorf("simpan user: %w", err)
 		}
-		return fmt.Errorf("simpan user: %w", err)
-	}
 
-	// Baris profil dipilih menurut peran.
-	insertProfile, err := profileInsertQuery(u.Role)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, insertProfile, u.UserID); err != nil {
-		return fmt.Errorf("simpan profil %s: %w", u.Role, err)
-	}
+		// Update actor context dengan user_id yang baru dibuat untuk trigger profil
+		if _, err := tx.Exec(ctx, "SELECT set_config('app.current_user_id', $1, true)", u.UserID); err != nil {
+			return fmt.Errorf("set actor user: %w", err)
+		}
 
-	// Commit = "ya, saya yakin, simpan permanen".
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("commit transaksi: %w", err)
-	}
+		// Baris profil dipilih menurut peran.
+		insertProfile, err := profileInsertQuery(u.Role)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, insertProfile, u.UserID); err != nil {
+			return fmt.Errorf("simpan profil %s: %w", u.Role, err)
+		}
 
-	return nil
+		return nil
+	})
 }
 
 // profileInsertQuery mengembalikan perintah INSERT untuk tabel profil yang

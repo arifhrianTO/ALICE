@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../main.dart';
+import '../tunanetra/voice_page.dart';
 import 'email_login_page.dart';
 import 'role_page.dart';
 
@@ -27,20 +30,32 @@ class LoginPage extends StatelessWidget {
     }
   }
 
-  void _showOAuthUnavailable(BuildContext context, String provider) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Masuk dengan $provider belum tersedia. Silakan gunakan Masuk dengan Email.',
-        ),
-        backgroundColor: Colors.redAccent,
-        duration: const Duration(seconds: 3),
+  /// Login simulasi untuk metode Google/Facebook (tanpa OAuth asli).
+  Future<void> _mockLogin(BuildContext context, String provider) async {
+    final isTunanetra = role == 'tunanetra';
+    final name = isTunanetra ? 'Ahmad Pratama' : 'Budi Santoso';
+    final email =
+        isTunanetra ? 'ahmad@$provider.com' : 'budisantoso@$provider.com';
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('isLoggedIn', true);
+    await prefs.setString('user_role', role);
+    await prefs.setString('user_name', name);
+    await prefs.setString('user_email', email);
+
+    if (!context.mounted) return;
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(
+        builder: (_) => isTunanetra ? const VoicePage() : const HomeShell(),
       ),
+      (_) => false,
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final isTunanetra = role == 'tunanetra';
     const footerStyle = TextStyle(
       color: Colors.white,
       fontSize: 16,
@@ -103,22 +118,23 @@ class LoginPage extends StatelessWidget {
                   height: 40,
                   fit: BoxFit.contain,
                 ),
-                onTap: () => _showOAuthUnavailable(context, 'Google'),
+                onTap: () => _mockLogin(context, 'google'),
               ),
 
-              const SizedBox(height: 22),
-              _LoginButton(
-                text: 'Masuk dengan Email',
-                background: _pink,
-                icon: const Icon(Icons.email,
-                    color: Color(0xFFD94545), size: 30),
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => EmailLoginPage(role: role)),
+              if (!isTunanetra) ...[
+                const SizedBox(height: 22),
+                _LoginButton(
+                  text: 'Masuk dengan Email',
+                  background: _pink,
+                  icon: const Icon(Icons.email,
+                      color: Color(0xFFD94545), size: 30),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => EmailLoginPage(role: role)),
+                  ),
                 ),
-              ),
-
+              ],
               const SizedBox(height: 22),
               _LoginButton(
                 text: 'Masuk dengan Facebook',
@@ -129,7 +145,7 @@ class LoginPage extends StatelessWidget {
                   height: 40,
                   fit: BoxFit.contain,
                 ),
-                onTap: () => _showOAuthUnavailable(context, 'Facebook'),
+                onTap: () => _mockLogin(context, 'facebook'),
               ),
 
               const SizedBox(height: 52),
