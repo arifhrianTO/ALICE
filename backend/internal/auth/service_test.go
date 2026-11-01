@@ -22,7 +22,15 @@ func (m *mockUserRepo) FindByEmail(ctx context.Context, email string) (*user.Use
 	return nil, nil
 }
 
-func (m *mockUserRepo) Create(ctx context.Context, u *user.User) error {
+func (m *mockUserRepo) Create(ctx context.Context, in user.CreateInput) error {
+	return nil
+}
+
+func (m *mockUserRepo) FindProfile(ctx context.Context, userID string) (*user.Profile, error) {
+	return nil, nil
+}
+
+func (m *mockUserRepo) UpdateProfile(ctx context.Context, userID, name string, phoneNumber, address *string) error {
 	return nil
 }
 
@@ -67,4 +75,52 @@ func TestLogin(t *testing.T) {
 	if res.User.UserID != "usr-1" || res.Token == "" {
 		t.Fatalf("invalid login result: %+v", res)
 	}
+}
+
+func TestRegister(t *testing.T) {
+	ctx := context.Background()
+	var createdUser *user.User
+
+	mockU := &mockUserRepoCreate{
+		onCreate: func(u *user.User) error {
+			createdUser = u
+			u.UserID = "usr-new"
+			return nil
+		},
+	}
+
+	svc := auth.NewService(mockU, &mockSessionRepo{}, nil, time.Hour)
+
+	res, err := svc.Register(ctx, auth.RegisterInput{
+		Name:        "Pendamping Baru",
+		Email:       "baru@example.com",
+		Password:    "password123",
+		Role:        "pendamping",
+		PhoneNumber: "08123456789",
+		Address:     "Jl. Sudirman No 1",
+	})
+	if err != nil {
+		t.Fatalf("register failed: %v", err)
+	}
+	if res.User.UserID != "usr-new" || res.Token == "" {
+		t.Fatalf("invalid register result: %+v", res)
+	}
+	if createdUser.PhoneNumber != "08123456789" || createdUser.Address != "Jl. Sudirman No 1" {
+		t.Fatalf("phone and address not set properly: %+v", createdUser)
+	}
+}
+
+type mockUserRepoCreate struct {
+	onCreate func(u *user.User) error
+}
+
+func (m *mockUserRepoCreate) FindByEmail(ctx context.Context, email string) (*user.User, error) {
+	return nil, nil
+}
+
+func (m *mockUserRepoCreate) Create(ctx context.Context, u *user.User) error {
+	if m.onCreate != nil {
+		return m.onCreate(u)
+	}
+	return nil
 }

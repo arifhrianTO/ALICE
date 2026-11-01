@@ -14,6 +14,7 @@ import 'dart:async' show TimeoutException;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/tts_service.dart'; // TTS
 import 'role_page.dart'; // tujuan setelah onboarding selesai
@@ -136,6 +137,24 @@ class _OnboardingPageState extends State<OnboardingPage>
     }
   }
 
+  Future<void> _finishOnboarding() async {
+    _progress.stop();
+    TtsService.instance.stop(); // TTS
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('has_seen_onboarding', true);
+    } catch (_) {}
+
+    if (!mounted) return;
+    if (widget.onFinish != null) {
+      widget.onFinish!();
+    } else {
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const RolePage()),
+      );
+    }
+  }
+
   void _next() {
     if (!mounted) return;
     if (_page < _total - 1) {
@@ -144,15 +163,7 @@ class _OnboardingPageState extends State<OnboardingPage>
         curve: Curves.easeInOut,
       );
     } else {
-      _progress.stop();
-      TtsService.instance.stop(); // TTS
-      if (widget.onFinish != null) {
-        widget.onFinish!();
-      } else {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const RolePage()),
-        );
-      }
+      _finishOnboarding();
     }
   }
 
@@ -259,24 +270,29 @@ class _OnboardingPageState extends State<OnboardingPage>
               left: 24,
               right: 24,
               bottom: 32 + bottomInset,
-              child: SizedBox(
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: _next,
-                  style: ElevatedButton.styleFrom(
-                    // Halaman 2: tombol ungu tua. Halaman 1 & 3: tombol putih.
-                    backgroundColor: _page == 1 ? _kDeep : Colors.white,
-                    foregroundColor: _page == 1 ? Colors.white : _kDeep,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+              child: Semantics(
+                button: true,
+                label: _page == _total - 1 ? 'Selesai onboarding' : 'Lanjut ke halaman berikutnya',
+                hint: 'Ketuk dua kali untuk melanjutkan',
+                child: SizedBox(
+                  height: 50,
+                  child: ElevatedButton(
+                    onPressed: _next,
+                    style: ElevatedButton.styleFrom(
+                      // Halaman 2: tombol ungu tua. Halaman 1 & 3: tombol putih.
+                      backgroundColor: _page == 1 ? _kDeep : Colors.white,
+                      foregroundColor: _page == 1 ? Colors.white : _kDeep,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 25,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                    textStyle: const TextStyle(
-                      fontSize: 25,
-                      fontWeight: FontWeight.w700,
-                    ),
+                    child: const Text('Next'),
                   ),
-                  child: const Text('Next'),
                 ),
               ),
             ),

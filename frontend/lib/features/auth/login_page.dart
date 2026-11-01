@@ -55,7 +55,6 @@ class LoginPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isTunanetra = role == 'tunanetra';
     const footerStyle = TextStyle(
       color: Colors.white,
       fontSize: 16,
@@ -88,10 +87,14 @@ class LoginPage extends StatelessWidget {
               const SizedBox(height: 40),
 
               // Logo
-              Image.asset(
-                'assets/icons/logo_icon.png',
-                height: 150,
-                fit: BoxFit.contain,
+              Semantics(
+                label: 'Logo aplikasi ALICE',
+                image: true,
+                child: Image.asset(
+                  'assets/icons/logo_icon.png',
+                  height: 150,
+                  fit: BoxFit.contain,
+                ),
               ),
 
               const SizedBox(height: 10),
@@ -121,7 +124,7 @@ class LoginPage extends StatelessWidget {
                 onTap: () => _mockLogin(context, 'google'),
               ),
 
-              if (!isTunanetra) ...[
+              if (role != 'tunanetra') ...[
                 const SizedBox(height: 22),
                 _LoginButton(
                   text: 'Masuk dengan Email',
@@ -135,6 +138,7 @@ class LoginPage extends StatelessWidget {
                   ),
                 ),
               ],
+
               const SizedBox(height: 22),
               _LoginButton(
                 text: 'Masuk dengan Facebook',
@@ -150,20 +154,24 @@ class LoginPage extends StatelessWidget {
 
               const SizedBox(height: 52),
 
-              RichText(
-                textAlign: TextAlign.center,
-                text: TextSpan(
-                  style: footerStyle,
-                  children: [
-                    const TextSpan(
-                      text:
-                          'Dengan melanjutkan, Anda menyatakan bahwa bahwa Anda menyetujui ',
-                    ),
-                    TextSpan(text: 'Persyaratan Layanan', style: linkStyle),
-                    const TextSpan(text: ' dan '),
-                    TextSpan(text: 'Kebijakan Privasi', style: linkStyle),
-                    const TextSpan(text: ' kami'),
-                  ],
+              Semantics(
+                label:
+                    'Dengan melanjutkan, Anda menyatakan bahwa Anda menyetujui Persyaratan Layanan dan Kebijakan Privasi kami',
+                child: RichText(
+                  textAlign: TextAlign.center,
+                  text: TextSpan(
+                    style: footerStyle,
+                    children: [
+                      const TextSpan(
+                        text:
+                            'Dengan melanjutkan, Anda menyatakan bahwa bahwa Anda menyetujui ',
+                      ),
+                      TextSpan(text: 'Persyaratan Layanan', style: linkStyle),
+                      const TextSpan(text: ' dan '),
+                      TextSpan(text: 'Kebijakan Privasi', style: linkStyle),
+                      const TextSpan(text: ' kami'),
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 24),
@@ -182,29 +190,35 @@ class _BackPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: LoginPage._pink,
-      shape: const StadiumBorder(),
-      child: InkWell(
-        customBorder: const StadiumBorder(),
-        onTap: onTap,
-        child: const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.arrow_back_ios_new,
-                  size: 12, color: LoginPage._ink),
-              SizedBox(width: 8),
-              Text(
-                'Kembali',
-                style: TextStyle(
-                  color: LoginPage._ink,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
+    return Semantics(
+      button: true,
+      label: 'Kembali',
+      hint: 'Ketuk dua kali untuk kembali ke pemilihan peran',
+      excludeSemantics: true,
+      child: Material(
+        color: LoginPage._pink,
+        shape: const StadiumBorder(),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: onTap,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.arrow_back_ios_new,
+                    size: 12, color: LoginPage._ink),
+                SizedBox(width: 8),
+                Text(
+                  'Kembali',
+                  style: TextStyle(
+                    color: LoginPage._ink,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -228,37 +242,43 @@ class _LoginButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: background,
-      shape: const StadiumBorder(),
-      child: InkWell(
-        customBorder: const StadiumBorder(),
-        onTap: onTap,
-        child: SizedBox(
-          height: 55,
-          width: double.infinity,
-          child: Padding(
-            padding: const EdgeInsets.only(left: 20, right: 12,),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 28,
-                  child: Center(child: icon),
-                ),
-                const SizedBox(width: 13),
-                Expanded(
-                  child: Text(
-                    text,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: LoginPage._ink,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
+    return Semantics(
+      button: true,
+      label: text,
+      hint: 'Ketuk dua kali untuk $text',
+      excludeSemantics: true,
+      child: Material(
+        color: background,
+        shape: const StadiumBorder(),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: onTap,
+          child: SizedBox(
+            height: 55,
+            width: double.infinity,
+            child: Padding(
+              padding: const EdgeInsets.only(left: 20, right: 12,),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 28,
+                    child: Center(child: icon),
+                  ),
+                  const SizedBox(width: 13),
+                  Expanded(
+                    child: Text(
+                      text,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: LoginPage._ink,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

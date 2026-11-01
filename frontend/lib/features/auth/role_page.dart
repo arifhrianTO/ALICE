@@ -26,14 +26,21 @@ class RolePage extends StatelessWidget {
           child: Column(
             children: [
               const SizedBox(height: 16),
-              const AliceIconLogo(height: 90),
+              Semantics(
+                label: 'Logo aplikasi ALICE',
+                image: true,
+                child: const AliceIconLogo(height: 90),
+              ),
               const SizedBox(height: 20),
-              const Text(
-                'Selamat datang!',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 34,
-                  fontWeight: FontWeight.w900,
+              Semantics(
+                header: true,
+                child: const Text(
+                  'Selamat datang!',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 34,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
@@ -87,81 +94,87 @@ class _RoleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      width: double.infinity,
-      height: 157,
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onTap,
-          child: Stack(
-            children: [
-              // Lingkaran warna di sebelah kiri card
-              Positioned(
-                left: -73,
-                top: -18,
-                bottom: -18,
-                width: 175,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: circleColor,
-                    shape: BoxShape.circle,
+    return Semantics(
+      button: true,
+      label: '$title. $desc',
+      hint: 'Ketuk dua kali untuk memilih peran $title',
+      excludeSemantics: true,
+      child: SizedBox(
+        width: double.infinity,
+        height: 157,
+        child: Material(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: Stack(
+              children: [
+                // Lingkaran warna di sebelah kiri card
+                Positioned(
+                  left: -73,
+                  top: -18,
+                  bottom: -18,
+                  width: 175,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: circleColor,
+                      shape: BoxShape.circle,
+                    ),
                   ),
                 ),
-              ),
 
-              // Icon PNG
-              Positioned(
-                left: -10,
-                top: 0,
-                bottom: 0,
-                width: 100,
-                child: Center(
-                  child: Image.asset(
-                    iconPath,
-                    width: 100,
-                    height: 100,
-                    fit: BoxFit.contain,
+                // Icon PNG
+                Positioned(
+                  left: -10,
+                  top: 0,
+                  bottom: 0,
+                  width: 100,
+                  child: Center(
+                    child: Image.asset(
+                      iconPath,
+                      width: 100,
+                      height: 100,
+                      fit: BoxFit.contain,
+                    ),
                   ),
                 ),
-              ),
 
-              // Judul dan deskripsi di sebelah kanan icon
-              Positioned(
-                left: 115,
-                right: 14,
-                top: 0,
-                bottom: 0,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: AliceText.cardTitle.copyWith(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black,
+                // Judul dan deskripsi di sebelah kanan icon
+                Positioned(
+                  left: 115,
+                  right: 14,
+                  top: 0,
+                  bottom: 0,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: AliceText.cardTitle.copyWith(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        desc,
-                        style: AliceText.cardDesc.copyWith(
-                          fontSize: 13,
-                          color: Colors.black87,
-                          height: 1.3,
+                        const SizedBox(height: 6),
+                        Text(
+                          desc,
+                          style: AliceText.cardDesc.copyWith(
+                            fontSize: 13,
+                            color: Colors.black87,
+                            height: 1.3,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),

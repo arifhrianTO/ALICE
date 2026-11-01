@@ -90,6 +90,13 @@ class TtsService {
     String? suffix,
     String language = 'id-ID',
   }) async {
+    // Jika TalkBack / screen reader sistem sedang aktif, lewati TTS otomatis
+    // agar suara tidak bertabrakan dengan pembaca layar sistem.
+    if (MediaQuery.of(context).accessibleNavigation) {
+      debugPrint('TTS: TalkBack sistem terdeteksi aktif, lewati speakPage.');
+      return;
+    }
+
     final parts = <String>[
       if (prefix != null && prefix.trim().isNotEmpty) prefix,
       ...extractTexts(context),

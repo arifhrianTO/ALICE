@@ -40,6 +40,10 @@ type User struct {
 
 	AuthProvider string `json:"auth_provider"`
 	Name         string `json:"name"`
+
+	// Profil pendamping (dari tabel companion)
+	PhoneNumber string `json:"phone_number,omitempty"`
+	Address     string `json:"address,omitempty"`
 }
 
 // Soal `json:"-"` pada Password:
@@ -47,3 +51,33 @@ type User struct {
 // Tanda itu artinya "JANGAN pernah ikut dikirim sebagai JSON".
 // Tanpa itu, siapa pun yang memanggil API bisa melihat hash password
 // semua pengguna. Ini kesalahan yang sering terjadi dan berbahaya.
+
+// Profile adalah gabungan data akun dan data profil pendamping.
+//
+// Kenapa digabung? Karena halaman profil di aplikasi membutuhkan keduanya
+// sekaligus: nama & email dari tabel "user", telepon & alamat dari tabel
+// "companion". Menggabungkannya di satu query menghindari dua perjalanan
+// ke database untuk satu layar.
+//
+// Untuk pengguna tunanetra, PhoneNumber dan Address bernilai nil karena
+// tabel "visually_impaired" tidak punya kolom itu.
+type Profile struct {
+	UserID      string  `json:"user_id"`
+	Name        string  `json:"name"`
+	Email       *string `json:"email,omitempty"`
+	Role        string  `json:"role"`
+	PhoneNumber *string `json:"phone_number,omitempty"`
+	Address     *string `json:"address,omitempty"`
+}
+
+// CreateInput adalah bahan untuk membuat pengguna baru.
+//
+// Kenapa User dan data profil dipisah, bukan ditambahkan ke struct User?
+// Karena struct User adalah cerminan tabel "user". Menaruh phone_number
+// di sana akan menyesatkan: kolom itu tidak ada di tabel "user", melainkan
+// di tabel "companion".
+type CreateInput struct {
+	User        *User
+	PhoneNumber *string
+	Address     *string
+}

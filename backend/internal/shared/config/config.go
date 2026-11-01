@@ -6,11 +6,15 @@
 package config
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
+
+	"alice-backend/internal/shared/crypto"
 
 	"github.com/joho/godotenv"
 )
@@ -27,6 +31,14 @@ type Config struct {
 	DBName          string // contoh "db_alice"
 	DBSSLMode       string // "disable" di lokal, "require" di produksi
 	SessionTTLHours int    // umur token login, dalam jam
+
+	// ProfileEncryptionKey adalah kunci AES-256 (32 byte) untuk mengenkripsi
+	// nomor telepon & alamat pendamping. Sudah dalam bentuk byte hasil
+	// decode base64, siap dipakai crypto.New.
+	//
+	// Kunci ini HANYA boleh hidup di environment aplikasi, tidak pernah
+	// disimpan di database.
+	ProfileEncryptionKey []byte
 }
 
 // Load merakit konfigurasi dari file .env (kalau ada) dan environment sistem.
@@ -48,16 +60,38 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("SESSION_TTL_HOURS harus berupa angka: %w", err)
 	}
 
+	// Kunci enkripsi profil WAJIB ada dan sah. Kalau tidak, lebih baik
+	// aplikasi berhenti sekarang daripada diam-diam menyimpan nomor
+	// telepon & alamat dalam bentuk plaintext.
+	keyEncoded := getEnv("PROFILE_ENCRYPTION_KEY", "")
+	if keyEncoded == "" {
+		return nil, fmt.Errorf(
+			"PROFILE_ENCRYPTION_KEY wajib diisi (buat dengan: openssl rand -base64 32)",
+		)
+	}
+
+	key, err := base64.StdEncoding.DecodeString(strings.TrimSpace(keyEncoded))
+	if err != nil {
+		return nil, fmt.Errorf("PROFILE_ENCRYPTION_KEY harus base64 yang valid: %w", err)
+	}
+	if len(key) != crypto.KeySize {
+		return nil, fmt.Errorf(
+			"PROFILE_ENCRYPTION_KEY harus %d byte setelah di-decode, sekarang %d",
+			crypto.KeySize, len(key),
+		)
+	}
+
 	cfg := &Config{
-		AppEnv:          getEnv("APP_ENV", "development"),
-		AppPort:         getEnv("APP_PORT", "8080"),
-		DBHost:          getEnv("DB_HOST", "localhost"),
-		DBPort:          getEnv("DB_PORT", "5432"),
-		DBUser:          getEnv("DB_USER", "app_user"),
-		DBPassword:      getEnv("DB_PASSWORD", ""),
-		DBName:          getEnv("DB_NAME", "db_alice"),
-		DBSSLMode:       getEnv("DB_SSLMODE", "disable"),
-		SessionTTLHours: ttl,
+		AppEnv:               getEnv("APP_ENV", "development"),
+		AppPort:              getEnv("APP_PORT", "8080"),
+		DBHost:               getEnv("DB_HOST", "localhost"),
+		DBPort:               getEnv("DB_PORT", "5432"),
+		DBUser:               getEnv("DB_USER", "app_user"),
+		DBPassword:           getEnv("DB_PASSWORD", ""),
+		DBName:               getEnv("DB_NAME", "db_alice"),
+		DBSSLMode:            getEnv("DB_SSLMODE", "disable"),
+		SessionTTLHours:      ttl,
+		ProfileEncryptionKey: key,
 	}
 
 	if cfg.DBUser == "" || cfg.DBName == "" {

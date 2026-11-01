@@ -77,11 +77,15 @@ class _VoicePageState extends State<VoicePage> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         centerTitle: true,
-        title: const Text('ALICE', style: AliceText.logo),
+        title: Semantics(
+          header: true,
+          label: 'Halaman Suara ALICE',
+          child: const Text('ALICE', style: AliceText.logo),
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white70),
-            tooltip: 'Keluar',
+            tooltip: 'Keluar dari akun',
             onPressed: _logout,
           ),
         ],
@@ -94,7 +98,10 @@ class _VoicePageState extends State<VoicePage> {
               const SizedBox(height: 12),
               MicButton(listening: listening, onTap: _toggle),
               const SizedBox(height: 20),
-              Waveform(active: listening),
+              ExcludeSemantics(
+                excluding: true,
+                child: Waveform(active: listening),
+              ),
               const SizedBox(height: 24),
               ChatBubble.user(
                 label: 'Suara Anda',
@@ -106,9 +113,14 @@ class _VoicePageState extends State<VoicePage> {
                 body: aliceText.isEmpty ? null : aliceText,
               ),
               const Spacer(),
-              Text(
-                listening ? 'Ketuk mic untuk berhenti' : 'Ketuk mic untuk bicara',
-                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              Semantics(
+                label: listening
+                    ? 'Mikrofon sedang mendengarkan. Ketuk tombol mikrofon untuk berhenti'
+                    : 'Mikrofon siap. Ketuk tombol mikrofon untuk bicara',
+                child: Text(
+                  listening ? 'Ketuk mic untuk berhenti' : 'Ketuk mic untuk bicara',
+                  style: const TextStyle(color: Colors.white70, fontSize: 13),
+                ),
               ),
               const SizedBox(height: 12),
             ],

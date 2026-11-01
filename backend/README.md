@@ -49,8 +49,8 @@ Server API untuk aplikasi ALICE. Ditulis dengan bahasa **Go**, memakai database 
 
 | Hal | Keterangan |
 |---|---|
-| Middleware auth | kerangka ada, isinya belum (`shared/middleware/auth.go`) |
-| Endpoint yang dilindungi token | `GET /api/auth/me`, `POST /api/auth/logout` (M2) |
+| Middleware auth | ✅ `shared/middleware/auth.go` memeriksa `Authorization: Bearer` |
+| Endpoint yang dilindungi token | ✅ `GET /api/profile`, `PUT /api/profile`; `POST /api/auth/logout` belum |
 | `/api/tunanetra` dari database | masih data dummy |
 | Penyambungan auth ke Flutter | ✅ `email_login_page.dart` sudah panggil `/api/auth/register` & `/api/auth/login` |
 | Bentuk database di repo | ❌ tidak disimpan (lihat bagian 4) |
@@ -735,7 +735,7 @@ database.
 | `type Repository interface` | kontrak akses tabel pengguna |
 | `FindByEmail(ctx, email)` | cari pengguna; kalau tidak ada → `(nil, nil)`, bukan error. Disiapkan untuk login |
 | `Create(ctx, u *User)` | simpan `user` **+ baris profilnya** dalam **satu transaksi** |
-| `NewRepository(pool)` | constructor (dependency injection) |
+| `NewRepository(pool, cipher)` | constructor (dependency injection) |
 | `var ErrEmailTaken` | terjemahan dari kode PostgreSQL `23505` (`unique_violation`) |
 | `isUniqueViolation(err)` | memeriksa kode `23505` lewat `errors.As` |
 | `profileInsertQuery(role)` | pilih tabel profil: `pendamping` → `companion`, `tunanetra` → `visually_impaired` |
@@ -848,6 +848,7 @@ Padanan `php artisan`. Jalankan `make` untuk melihat daftar lengkap.
 | `make build` | build ke `bin/server` |
 | `make check` | format + vet + test sekaligus |
 | `make seed` | isi data uji |
+| `make encrypt-profiles` | enkripsi data profil lama yang masih plaintext |
 | `make psql` | buka psql ke database |
 | `make db-dump` | cetak skema yang sedang terpasang (hanya membaca) |
 
@@ -969,6 +970,60 @@ Tabel rujukan saat kamu bertemu istilah teknis:
 | `operator_user` | baca + tulis |
 | `viewer_user` | baca saja |
 
+### Enkripsi data profil (nomor telepon & alamat)
+
+Nomor telepon dan alamat pendamping **dienkripsi di aplikasi** sebelum masuk
+database. Database hanya menyimpan ciphertext; ia tidak punya kunci dan tidak
+tahu cara membukanya.
+
+| Hal | Nilai |
+|---|---|
+| Algoritma | AES-256-GCM (authenticated encryption) |
+| Kunci | `PROFILE_ENCRYPTION_KEY` di `.env`, base64 dari 32 byte |
+| Format simpan | `v1:` + base64(nonce ‖ ciphertext ‖ tag) |
+| AAD | `<user_id>:phone_number` / `<user_id>:address` |
+| Tipe kolom | `phone_number` dan `address` bertipe `TEXT` |
+
+Membuat kunci:
+
+```bash
+openssl rand -base64 32
+```
+
+Lalu isi di `.env`:
+
+```text
+PROFILE_ENCRYPTION_KEY=<hasil-perintah-di-atas>
+```
+
+Aplikasi **berhenti saat start** kalau kunci tidak ada atau panjangnya bukan
+32 byte. Ini disengaja: lebih baik gagal sekarang daripada diam-diam
+menyimpan data sensitif dalam bentuk plaintext.
+
+**Peringatan:** kalau kunci ini hilang, data yang sudah terenkripsi tidak bisa
+dipulihkan. Simpan cadangannya di tempat aman (bukan di repo).
+
+**Data lama:** nilai yang belum berawalan `v1:` dianggap plaintext lama dan
+tetap bisa dibaca. Begitu pemiliknya menyimpan ulang profil, nilainya berubah
+menjadi ciphertext. Untuk membereskan semuanya sekaligus:
+
+```bash
+make encrypt-profiles
+```
+
+Perintah itu idempotent: baris yang sudah `v1:` dilewati, jadi aman dijalankan
+berulang kali. Untuk memeriksa:
+
+```sql
+SELECT user_id, left(phone_number, 3), left(address, 3) FROM public.companion;
+```
+
+Baris baru akan terlihat seperti `v1:`; baris lama masih teks biasa.
+
+Catatan: enkripsi ini melindungi data **saat tersimpan** (dump, backup, akses
+langsung ke database). Untuk melindungi data saat dikirim, produksi tetap
+harus memakai HTTPS.
+
 ### Desain autentikasi
 
 Adanya tabel `session` dengan kolom `session_token` dan `expired_at` menunjukkan
@@ -1025,12 +1080,19 @@ Badan permintaan:
   "name": "Budi Santoso",
   "email": "BudiSantoso@gmail.com",
   "password": "rahasia123",
-  "role": "pendamping"
+  "role": "pendamping",
+  "phone_number": "08123456789",
+  "address": "Jl. Ahmad Yani, Batam"
 }
 ```
 
 `role` hanya menerima dua nilai, sama dengan enum `user_role`:
 `"pendamping"` atau `"tunanetra"`.
+
+`phone_number` **wajib** untuk pendamping dan disimpan dalam bentuk rapi
+(spasi, tanda hubung, dan kurung dibuang). `address` opsional, maksimal
+255 karakter. Untuk `role: "tunanetra"`, kedua field ini diabaikan karena
+tabel `visually_impaired` tidak punya kolomnya.
 
 Balasan berhasil (`201 Created`):
 
@@ -1062,6 +1124,9 @@ Balasan gagal:
 | `400` | `email wajib diisi` | `email` kosong |
 | `400` | `format email tidak valid` | `email` tidak berbentuk alamat email |
 | `400` | `password minimal 6 karakter` | `password` terlalu pendek |
+| `400` | `nomor telepon wajib diisi` | `phone_number` kosong untuk pendamping |
+| `400` | `format nomor telepon tidak valid` | nomor bukan 9–15 digit (boleh diawali `+`) |
+| `400` | `alamat maksimal 255 karakter` | `address` melebihi batas kolom database |
 | `400` | `peran harus "pendamping" atau "tunanetra"` | `role` berisi nilai lain |
 | `400` | `format JSON tidak valid` | badan permintaan bukan JSON yang sah |
 | `409` | `email sudah terdaftar` | email sudah dipakai akun lain |
@@ -1114,12 +1179,59 @@ Balasan gagal:
 | `401` | `email atau password salah` | email tidak terdaftar atau password tidak cocok |
 | `500` | `terjadi kesalahan pada server` | kesalahan database / internal server |
 
+### `GET /api/profile` dan `PUT /api/profile` — ✅ sudah ada
+
+Endpoint ini butuh token:
+
+```text
+Authorization: Bearer <session_token>
+```
+
+`GET` mengembalikan data akun + profil pendamping:
+
+```json
+{
+  "success": true,
+  "message": "profil berhasil diambil",
+  "data": {
+    "user_id": "69fe7760-540b-4280-a245-c24ff4e1eaff",
+    "name": "Pengguna Pendamping",
+    "email": "pendamping@example.com",
+    "role": "pendamping",
+    "phone_number": "08123456789",
+    "address": "Jl. Ahmad Yani, Batam"
+  }
+}
+```
+
+`PUT` menerima badan berikut (email & role tidak boleh diubah dari sini):
+
+```json
+{
+  "name": "Pengguna Pendamping",
+  "phone_number": "08123456789",
+  "address": "Jl. Ahmad Yani, Batam"
+}
+```
+
+Aturan validasinya sama dengan pendaftaran: nama wajib, telepon wajib &
+9–15 digit, alamat opsional maksimal 255 karakter. Untuk pengguna
+tunanetra, telepon & alamat diabaikan.
+
+| Kode | Pesan | Sebab |
+|---|---|---|
+| `400` | `nama pengguna wajib diisi` | `name` kosong |
+| `400` | `nomor telepon wajib diisi` | `phone_number` kosong |
+| `400` | `format nomor telepon tidak valid` | bentuk nomor salah |
+| `400` | `alamat maksimal 255 karakter` | alamat terlalu panjang |
+| `401` | `sesi tidak valid atau sudah kedaluwarsa` | token tidak ada / kedaluwarsa |
+| `404` | `profil tidak ditemukan` | `user_id` di token tidak ada di tabel `user` |
+
 ### Direncanakan (M2)
 
 | Method | Path | Keterangan |
 |---|---|---|
 | POST | `/api/auth/logout` | mencabut token |
-| GET | `/api/auth/me` | data pengguna yang sedang login |
 
 Endpoint yang butuh login akan memakai header:
 
@@ -1307,6 +1419,7 @@ Berikutnya: **M2 — Proteksi Token (`shared/middleware/auth.go`, `/api/auth/me`
 | Skema database | hanya ada di PostgreSQL; dicetak dengan `make db-dump` bila perlu |
 | Config | `godotenv` + `internal/shared/config` |
 | Hash password | `golang.org/x/crypto/bcrypt` (cost default = 10) |
+| Enkripsi telepon & alamat | AES-256-GCM di aplikasi; kunci di `PROFILE_ENCRYPTION_KEY` |
 | CLI perintah | `Makefile` |
 
 ---

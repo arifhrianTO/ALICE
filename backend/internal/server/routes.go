@@ -6,11 +6,14 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"time"
 
 	"alice-backend/internal/auth"
+	"alice-backend/internal/profile"
 	"alice-backend/internal/shared/config"
+	"alice-backend/internal/shared/crypto"
 	"alice-backend/internal/shared/middleware"
 	"alice-backend/internal/shared/response"
 	"alice-backend/internal/system"
@@ -35,7 +38,14 @@ import (
 // terang-terangan di bawah ini. Terkesan lebih ribet, tapi keuntungannya:
 // cukup membaca beberapa baris untuk tahu persis aplikasi ini dirakit
 // dari apa. Tidak ada yang tersembunyi.
-func Setup(db *pgxpool.Pool, cfg *config.Config) *gin.Engine {
+func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
+	// Siapkan alat enkripsi profil. Kunci sudah divalidasi di config.Load,
+	// jadi kegagalan di sini hanya mungkin karena masalah internal.
+	fieldCipher, err := crypto.New(cfg.ProfileEncryptionKey)
+	if err != nil {
+		return nil, fmt.Errorf("siapkan enkripsi profil: %w", err)
+	}
+
 	// Mode produksi mematikan tulisan debug supaya log tidak berisik
 	// dan tidak membocorkan informasi internal.
 	if cfg.AppEnv == "production" {
@@ -73,7 +83,9 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) *gin.Engine {
 	// ---------------------------------------------------------------
 
 	// Lapis 1: repository. Hanya lapisan ini yang menyentuh database.
-	userRepo := user.NewRepository(db)
+	// Cipher ikut masuk ke sini supaya enkripsi/dekripsi terjadi tepat
+	// di batas database, bukan tersebar di handler atau service.
+	userRepo := user.NewRepository(db, fieldCipher)
 	sessionRepo := auth.NewSessionRepository(db)
 
 	// Lapis 2: service. Menerima repository, bukan membuatnya sendiri.
@@ -91,6 +103,8 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) *gin.Engine {
 
 	// Lapis 3: handler. Hanya tahu soal HTTP.
 	authHandler := auth.NewHandler(authService)
+	profileService := profile.NewService(userRepo)
+	profileHandler := profile.NewHandler(profileService)
 	health := system.NewHealthHandler(db)
 
 	// ---------------------------------------------------------------
@@ -111,12 +125,15 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) *gin.Engine {
 		api.POST("/auth/register", authHandler.Register)
 		api.POST("/auth/login", authHandler.Login)
 
-		// --- M2: proteksi ---
-		// Butuh middleware.Auth(db), contoh:
-		//   protected := api.Group("", middleware.Auth(db))
-		//   protected.GET("/auth/me", authHandler.Me)
-		//   protected.POST("/auth/logout", authHandler.Logout)
+		// --- M2: endpoint yang butuh token ---
+		// Middleware.Auth membaca header `Authorization: Bearer <token>`,
+		// memeriksa tabel session, lalu mengisi `user_id` ke context.
+		protected := api.Group("", middleware.Auth(db))
+		{
+			protected.GET("/profile", profileHandler.Get)
+			protected.PUT("/profile", profileHandler.Update)
+		}
 	}
 
-	return r
+	return r, nil
 }
