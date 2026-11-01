@@ -22,7 +22,15 @@ func (m *mockUserRepo) FindByEmail(ctx context.Context, email string) (*user.Use
 	return nil, nil
 }
 
-func (m *mockUserRepo) Create(ctx context.Context, u *user.User) error {
+func (m *mockUserRepo) Create(ctx context.Context, in user.CreateInput) error {
+	return nil
+}
+
+func (m *mockUserRepo) FindProfile(ctx context.Context, userID string) (*user.Profile, error) {
+	return nil, nil
+}
+
+func (m *mockUserRepo) UpdateProfile(ctx context.Context, userID, name string, phoneNumber, address *string) error {
 	return nil
 }
 

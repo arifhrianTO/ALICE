@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"alice-backend/internal/shared/audit"
+	"alice-backend/internal/shared/validation"
 	"alice-backend/internal/user"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -170,7 +171,7 @@ type RegisterResult struct {
 //  4. buat token acak, simpan sebagai sesi
 func (s *Service) Register(ctx context.Context, in RegisterInput) (*RegisterResult, error) {
 	// 1. Periksa dan rapikan isi permintaan.
-	name, email, role, err := validateRegister(in)
+	clean, err := validateRegister(in)
 	if err != nil {
 		return nil, err
 	}
@@ -192,16 +193,20 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*RegisterResu
 	// Password diisi dengan HASH, bukan password asli. Password asli
 	// hilang begitu fungsi ini selesai — memang begitu seharusnya.
 	u := &user.User{
-		Name:         name,
-		Email:        &email,
+		Name:         clean.Name,
+		Email:        &clean.Email,
 		Password:     &hashStr,
-		Role:         role,
+		Role:         clean.Role,
 		AuthProvider: user.AuthProviderEmail,
 		PhoneNumber:  strings.TrimSpace(in.PhoneNumber),
 		Address:      strings.TrimSpace(in.Address),
 	}
 
-	if err := s.users.Create(ctx, u); err != nil {
+	if err := s.users.Create(ctx, user.CreateInput{
+		User:        u,
+		PhoneNumber: clean.PhoneNumber,
+		Address:     clean.Address,
+	}); err != nil {
 		// Terjemahkan istilah milik package user menjadi istilah milik auth.
 		if errors.Is(err, user.ErrEmailTaken) {
 			return nil, ErrEmailTaken
@@ -286,6 +291,19 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (*LoginResult, error
 	}, nil
 }
 
+// cleanRegister adalah hasil validasi yang sudah rapi dan siap disimpan.
+//
+// PhoneNumber dan Address bertipe pointer karena hanya berlaku untuk
+// pendamping. Untuk tunanetra keduanya nil, dan kolom itu memang tidak
+// ada di tabel profilnya.
+type cleanRegister struct {
+	Name        string
+	Email       string
+	Role        string
+	PhoneNumber *string
+	Address     *string
+}
+
 // validateRegister memeriksa isi permintaan pendaftaran sekaligus
 // merapikannya, lalu mengembalikan nilai yang sudah bersih.
 //
@@ -294,10 +312,12 @@ func (s *Service) Login(ctx context.Context, in LoginInput) (*LoginResult, error
 // masih harus ingat untuk melakukan TrimSpace dan ToLower sendiri.
 // Menyuruh pemanggil "ingat ya, nanti dirapikan" adalah cara paling
 // mudah menciptakan bug.
-func validateRegister(in RegisterInput) (name, email, role string, err error) {
+func validateRegister(in RegisterInput) (cleanRegister, error) {
+	var out cleanRegister
+
 	// Rapikan dulu, baru periksa. Kalau diperiksa dulu, nama berisi
 	// spasi saja ("   ") akan lolos dan tersimpan sebagai nama kosong.
-	name = strings.TrimSpace(in.Name)
+	out.Name = strings.TrimSpace(in.Name)
 
 	// Email dirapikan DAN dijadikan huruf kecil.
 	//
@@ -305,32 +325,51 @@ func validateRegister(in RegisterInput) (name, email, role string, err error) {
 	// kecil. Tanpa langkah ini, "Budi@gmail.com" dan "budi@gmail.com"
 	// dianggap dua akun berbeda — padahal bagi manusia keduanya sama,
 	// dan pemiliknya jadi bingung karena tidak bisa login.
-	email = strings.ToLower(strings.TrimSpace(in.Email))
+	out.Email = strings.ToLower(strings.TrimSpace(in.Email))
 
-	role = strings.TrimSpace(in.Role)
+	out.Role = strings.TrimSpace(in.Role)
 
 	switch {
-	case name == "":
-		return "", "", "", invalid("nama lengkap wajib diisi")
+	case out.Name == "":
+		return cleanRegister{}, invalid("nama lengkap wajib diisi")
 
-	case email == "":
-		return "", "", "", invalid("email wajib diisi")
+	case out.Email == "":
+		return cleanRegister{}, invalid("email wajib diisi")
 
-	case !emailPattern.MatchString(email):
-		return "", "", "", invalid("format email tidak valid")
+	case !emailPattern.MatchString(out.Email):
+		return cleanRegister{}, invalid("format email tidak valid")
 
 	case len(in.Password) < PasswordMinLength:
 		// Perhatikan: password TIDAK dirapikan dengan TrimSpace.
 		// Spasi di awal atau akhir password adalah bagian sah dari
 		// password itu sendiri. Merapikannya diam-diam bikin pengguna
 		// tidak bisa login padahal dia mengetik persis seperti saat daftar.
-		return "", "", "", invalid(fmt.Sprintf("password minimal %d karakter", PasswordMinLength))
+		return cleanRegister{}, invalid(fmt.Sprintf("password minimal %d karakter", PasswordMinLength))
 
-	case role != user.RolePendamping && role != user.RoleTunanetra:
-		return "", "", "", invalid(`peran harus "pendamping" atau "tunanetra"`)
+	case out.Role != user.RolePendamping && out.Role != user.RoleTunanetra:
+		return cleanRegister{}, invalid(`peran harus "pendamping" atau "tunanetra"`)
 	}
 
-	return name, email, role, nil
+	// Telepon & alamat hanya relevan untuk pendamping. Pengguna tunanetra
+	// tidak punya kolom itu di tabel profilnya, jadi isian apa pun dari
+	// klien diabaikan — bukan disimpan ke tempat yang salah.
+	if out.Role == user.RolePendamping {
+		phone, err := validation.NormalizePhone(in.PhoneNumber)
+		if err != nil {
+			return cleanRegister{}, invalid(err.Error())
+		}
+		out.PhoneNumber = &phone
+
+		address, err := validation.NormalizeAddress(in.Address)
+		if err != nil {
+			return cleanRegister{}, invalid(err.Error())
+		}
+		if address != "" {
+			out.Address = &address
+		}
+	}
+
+	return out, nil
 }
 
 // newToken membuat token acak sepanjang tokenBytes byte, lalu menulisnya

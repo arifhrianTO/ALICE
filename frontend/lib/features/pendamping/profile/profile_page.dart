@@ -1,6 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/api_config.dart';
 import '../../../core/colors.dart';
 import '../../auth/role_page.dart';
 
@@ -24,11 +28,10 @@ class ProfilePage extends StatefulWidget {
 }
 
 class _ProfilePageState extends State<ProfilePage> {
-  String _name = 'Budi Santoso';
-  String _email = 'BudiSantoso@gmail.com';
-  String _phone = '08123456789';
-  String _address =
-      'Jl. Ahmad Yani, Tlk. Tering, Kec. Batam Kota, Kota Batam, Kepulauan Riau 29461';
+  String _name = '';
+  String _email = '';
+  String _phone = '';
+  String _address = '';
   bool _loading = true;
 
   @override
@@ -37,16 +40,117 @@ class _ProfilePageState extends State<ProfilePage> {
     _loadProfile();
   }
 
+  /// Ambil profil dari backend. Kalau server tidak bisa dihubungi (atau
+  /// pengguna masuk lewat mock Google/Facebook yang belum punya token),
+  /// data lokal di SharedPreferences tetap dipakai sebagai cadangan.
   Future<void> _loadProfile() async {
     final prefs = await SharedPreferences.getInstance();
+
+    var name = prefs.getString('user_name') ?? widget.initialName ?? '';
+    var email = prefs.getString('user_email') ?? widget.initialEmail ?? '';
+    var phone = prefs.getString('user_phone') ?? '';
+    var address = prefs.getString('user_address') ?? '';
+
+    final token = prefs.getString('session_token') ?? '';
+    if (token.isNotEmpty) {
+      try {
+        final response = await http.get(
+          Uri.parse('${ApiConfig.baseUrl}/api/profile'),
+          headers: {'Authorization': 'Bearer $token'},
+        ).timeout(const Duration(seconds: 10));
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body) as Map<String, dynamic>;
+          final profile = data['data'] as Map<String, dynamic>? ?? {};
+
+          name = profile['name'] as String? ?? name;
+          email = profile['email'] as String? ?? email;
+          phone = profile['phone_number'] as String? ?? phone;
+          address = profile['address'] as String? ?? address;
+
+          // Simpan salinan lokal supaya halaman tetap terisi saat offline.
+          await prefs.setString('user_name', name);
+          await prefs.setString('user_email', email);
+          await prefs.setString('user_phone', phone);
+          await prefs.setString('user_address', address);
+        }
+      } catch (_) {
+        // Server mati / tidak ada jaringan: lanjut dengan data lokal.
+      }
+    }
+
     if (!mounted) return;
     setState(() {
-      _name = prefs.getString('user_name') ?? widget.initialName ?? _name;
-      _email = prefs.getString('user_email') ?? widget.initialEmail ?? _email;
-      _phone = prefs.getString('user_phone') ?? _phone;
-      _address = prefs.getString('user_address') ?? _address;
+      _name = name;
+      _email = email;
+      _phone = phone;
+      _address = address;
       _loading = false;
     });
+  }
+
+  /// Simpan perubahan ke backend, lalu ke salinan lokal.
+  ///
+  /// Mengembalikan false kalau backend menolak, supaya dialog tidak
+  /// tertutup dan pengguna bisa memperbaiki isiannya.
+  Future<bool> _saveProfile(String name, String phone, String address) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('session_token') ?? '';
+
+    if (token.isNotEmpty) {
+      try {
+        final response = await http.put(
+          Uri.parse('${ApiConfig.baseUrl}/api/profile'),
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode({
+            'name': name,
+            'phone_number': phone,
+            'address': address,
+          }),
+        ).timeout(const Duration(seconds: 10));
+
+        if (response.statusCode != 200) {
+          final data = jsonDecode(response.body) as Map<String, dynamic>;
+          _showMessage(
+              data['message'] as String? ?? 'Gagal menyimpan profil.');
+          return false;
+        }
+      } catch (_) {
+        _showMessage('Gagal menghubungi server. Silakan coba lagi.');
+        return false;
+      }
+    }
+
+    await prefs.setString('user_name', name);
+    await prefs.setString('user_phone', phone);
+    await prefs.setString('user_address', address);
+
+    if (!mounted) return true;
+    setState(() {
+      _name = name;
+      _phone = phone;
+      _address = address;
+    });
+    return true;
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  String _filled(String value) =>
+      value.trim().isEmpty ? 'Belum diisi' : value;
+
+  /// Sama dengan aturan backend: buang spasi/tanda hubung, lalu terima
+  /// nomor yang diawali "+" dan berisi 9–15 digit.
+  bool _isValidPhone(String raw) {
+    final cleaned = raw.replaceAll(RegExp(r'[^0-9+]'), '');
+    return RegExp(r'^\+?[0-9]{9,15}$').hasMatch(cleaned);
   }
 
   Future<void> _showEditDialog() async {
@@ -76,29 +180,7 @@ class _ProfilePageState extends State<ProfilePage> {
               _field(nameCtrl),
               const SizedBox(height: 12),
               _label('Nomor Telepon'),
-              _field(
-                phoneCtrl,
-                keyboardType: TextInputType.phone,
-                suffix: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD6F5D6),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.verified_outlined,
-                          size: 10, color: Color(0xFF2E7D32)),
-                      SizedBox(width: 2),
-                      Text('Disetujui',
-                          style: TextStyle(
-                              fontSize: 9, color: Color(0xFF2E7D32))),
-                    ],
-                  ),
-                ),
-              ),
+              _field(phoneCtrl, keyboardType: TextInputType.phone),
               const SizedBox(height: 12),
               _label('Alamat'),
               _field(addressCtrl, maxLines: 4),
@@ -110,21 +192,25 @@ class _ProfilePageState extends State<ProfilePage> {
                       () => Navigator.pop(ctx)),
                   const SizedBox(width: 12),
                   _button('Ubah', kPurple, Colors.white, () async {
-                    final prefs = await SharedPreferences.getInstance();
                     final name = nameCtrl.text.trim();
                     final phone = phoneCtrl.text.trim();
                     final address = addressCtrl.text.trim();
-                    await prefs.setString('user_name', name);
-                    await prefs.setString('user_phone', phone);
-                    await prefs.setString('user_address', address);
-                    if (mounted) {
-                      setState(() {
-                        _name = name.isEmpty ? _name : name;
-                        _phone = phone;
-                        _address = address;
-                      });
+
+                    if (name.isEmpty) {
+                      _showMessage('Nama pengguna wajib diisi.');
+                      return;
                     }
-                    if (ctx.mounted) Navigator.pop(ctx);
+                    if (!_isValidPhone(phone)) {
+                      _showMessage('Mohon masukkan nomor telepon yang valid.');
+                      return;
+                    }
+                    if (address.length > 255) {
+                      _showMessage('Alamat maksimal 255 karakter.');
+                      return;
+                    }
+
+                    final saved = await _saveProfile(name, phone, address);
+                    if (saved && ctx.mounted) Navigator.pop(ctx);
                   }),
                 ],
               ),
@@ -193,7 +279,7 @@ class _ProfilePageState extends State<ProfilePage> {
       );
 
   Widget _field(TextEditingController c,
-      {int maxLines = 1, Widget? suffix, TextInputType? keyboardType}) {
+      {int maxLines = 1, TextInputType? keyboardType}) {
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
       borderSide: BorderSide(color: Colors.grey.shade300),
@@ -204,13 +290,6 @@ class _ProfilePageState extends State<ProfilePage> {
       keyboardType: keyboardType,
       style: const TextStyle(color: kTextPurple, fontSize: 15),
       decoration: InputDecoration(
-        suffixIcon: suffix == null
-            ? null
-            : Padding(
-                padding: const EdgeInsets.only(right: 10),
-                child: suffix,
-              ),
-        suffixIconConstraints: const BoxConstraints(minHeight: 0, minWidth: 0),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         enabledBorder: border,
@@ -310,7 +389,10 @@ class _ProfilePageState extends State<ProfilePage> {
                   backgroundImage: AssetImage('assets/icons/profil.png'),
                 ),
                 const SizedBox(height: 16),
-                Text(_loading ? 'Memuat...' : _name,
+                Text(
+                    _loading
+                        ? 'Memuat...'
+                        : (_name.trim().isEmpty ? 'Pengguna' : _name),
                     style: const TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.w700,
@@ -334,9 +416,9 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
           ),
           const SizedBox(height: 16),
-          _infoCard(Icons.mail, _loading ? '...' : _email),
-          _infoCard(Icons.phone, _phone),
-          _infoCard(Icons.location_on, _address),
+          _infoCard(Icons.mail, _loading ? '...' : _filled(_email)),
+          _infoCard(Icons.phone, _filled(_phone)),
+          _infoCard(Icons.location_on, _filled(_address)),
           _infoCard(Icons.logout, 'Keluar',
               iconColor: _kRed,
               textColor: _kRed,
