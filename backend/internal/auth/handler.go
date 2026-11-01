@@ -51,10 +51,12 @@ func (h *Handler) Register(c *gin.Context) {
 	}
 
 	res, err := h.svc.Register(c.Request.Context(), RegisterInput{
-		Name:     req.Name,
-		Email:    req.Email,
-		Password: req.Password,
-		Role:     req.Role,
+		Name:        req.Name,
+		Email:       req.Email,
+		Password:    req.Password,
+		Role:        req.Role,
+		PhoneNumber: req.PhoneNumber,
+		Address:     req.Address,
 	})
 	if err != nil {
 		writeError(c, err)

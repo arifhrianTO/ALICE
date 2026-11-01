@@ -42,7 +42,10 @@ func main() {
 	//    Semua pendaftaran endpoint ada di internal/server, bukan di sini.
 	//    Seluruh konfigurasi diteruskan karena di dalamnya dibutuhkan
 	//    APP_ENV (mode debug) dan SESSION_TTL_HOURS (umur token login).
-	router := server.Setup(db, cfg)
+	router, err := server.Setup(db, cfg)
+	if err != nil {
+		log.Fatalf("gagal merakit router: %v", err)
+	}
 
 	// 4. Nyalakan server
 	log.Printf("Server berjalan di http://localhost:%s", cfg.AppPort)

@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 
+	"alice-backend/internal/shared/crypto"
 	"alice-backend/internal/shared/database"
 
 	"github.com/jackc/pgx/v5"
@@ -52,7 +53,19 @@ type Repository interface {
 	// Create menyimpan pengguna baru BESERTA baris profilnya.
 	// Isi field UserID pada struct akan diisi oleh database.
 	// Mengembalikan ErrEmailTaken kalau emailnya sudah terpakai.
-	Create(ctx context.Context, u *User) error
+	Create(ctx context.Context, in CreateInput) error
+
+	// FindProfile mengambil data akun + profil pendamping dalam satu query.
+	//
+	// Kalau penggunanya tidak ada, hasilnya (nil, nil) — sama seperti
+	// FindByEmail, "tidak ketemu" bukan kerusakan.
+	FindProfile(ctx context.Context, userID string) (*Profile, error)
+
+	// UpdateProfile menyimpan perubahan nama, telepon, dan alamat.
+	//
+	// Nama masuk ke tabel "user", telepon & alamat ke tabel "companion".
+	// Keduanya dibungkus satu transaksi supaya tidak ada perubahan separuh.
+	UpdateProfile(ctx context.Context, userID, name string, phoneNumber, address *string) error
 }
 
 // postgresRepository adalah implementasi Repository yang benar-benar
@@ -61,7 +74,8 @@ type Repository interface {
 // Dia sengaja tidak diekspor (huruf kecil). Pemanggil di luar package ini
 // memakai interfacenya, jadi bentuk aslinya bebas diubah kapan saja.
 type postgresRepository struct {
-	pool *pgxpool.Pool
+	pool   *pgxpool.Pool
+	cipher *crypto.Cipher
 }
 
 // NewRepository adalah constructor: menyiapkan Repository yang siap pakai.
@@ -69,8 +83,13 @@ type postgresRepository struct {
 // Kenapa lewat fungsi, bukan langsung membuat struct? Supaya "kabelnya"
 // terlihat jelas saat dirakit di internal/server/routes.go. Di Laravel ini
 // peran service container; di Go ditulis terang-terangan.
-func NewRepository(pool *pgxpool.Pool) Repository {
-	return &postgresRepository{pool: pool}
+//
+// cipher dipakai untuk mengenkripsi nomor telepon & alamat sebelum masuk
+// database, dan mendekripsinya saat dibaca. Repository adalah satu-satunya
+// lapisan yang menyentuh database, jadi di sinilah batas plaintext↔ciphertext
+// dijaga.
+func NewRepository(pool *pgxpool.Pool, cipher *crypto.Cipher) Repository {
+	return &postgresRepository{pool: pool, cipher: cipher}
 }
 
 // FindByEmail mengambil satu pengguna berdasarkan email.
@@ -118,7 +137,9 @@ func (r *postgresRepository) FindByEmail(ctx context.Context, email string) (*Us
 // berhasil semua, atau batal semua. Tanpa itu, kalau penyimpanan profil
 // gagal, baris "user" sudah terlanjur masuk — lahirlah pengguna tanpa
 // profil, dan semua kode yang mengira profilnya ada akan ikut rusak.
-func (r *postgresRepository) Create(ctx context.Context, u *User) error {
+func (r *postgresRepository) Create(ctx context.Context, in CreateInput) error {
+	u := in.User
+
 	return database.WithActor(ctx, r.pool, "anonymous", func(tx pgx.Tx) error {
 		const insertUser = `
 			INSERT INTO "user" (role, email, password, auth_provider, name)
@@ -145,7 +166,22 @@ func (r *postgresRepository) Create(ctx context.Context, u *User) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, insertProfile, u.UserID); err != nil {
+
+		// Hanya pendamping yang punya kolom telepon & alamat.
+		args := []any{u.UserID}
+		if u.Role == RolePendamping {
+			phone, err := r.encryptPhone(u.UserID, in.PhoneNumber)
+			if err != nil {
+				return err
+			}
+			address, err := r.encryptAddress(u.UserID, in.Address)
+			if err != nil {
+				return err
+			}
+			args = append(args, phone, address)
+		}
+
+		if _, err := tx.Exec(ctx, insertProfile, args...); err != nil {
 			return fmt.Errorf("simpan profil %s: %w", u.Role, err)
 		}
 
@@ -158,13 +194,134 @@ func (r *postgresRepository) Create(ctx context.Context, u *User) error {
 func profileInsertQuery(role string) (string, error) {
 	switch role {
 	case RolePendamping:
-		return `INSERT INTO public.companion (user_id) VALUES ($1)`, nil
+		return `INSERT INTO public.companion (user_id, phone_number, address) VALUES ($1, $2, $3)`, nil
 	case RoleTunanetra:
 		return `INSERT INTO public.visually_impaired (user_id) VALUES ($1)`, nil
 	default:
 		return "", fmt.Errorf("peran tidak dikenal: %q", role)
 	}
 }
+
+// FindProfile mengambil data akun dan profil pendamping sekaligus.
+//
+// LEFT JOIN dipakai (bukan JOIN biasa) karena pengguna tunanetra tidak
+// punya baris di tabel "companion". Dengan LEFT JOIN, mereka tetap
+// ditemukan, hanya kolom telepon & alamatnya bernilai NULL.
+func (r *postgresRepository) FindProfile(ctx context.Context, userID string) (*Profile, error) {
+	const query = `
+		SELECT u.user_id, u.name, u.email, u.role, c.phone_number, c.address
+		FROM "user" u
+		LEFT JOIN public.companion c ON c.user_id = u.user_id
+		WHERE u.user_id = $1`
+
+	var p Profile
+	err := r.pool.QueryRow(ctx, query, userID).Scan(
+		&p.UserID,
+		&p.Name,
+		&p.Email,
+		&p.Role,
+		&p.PhoneNumber,
+		&p.Address,
+	)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("cari profil pengguna: %w", err)
+	}
+
+	// Data di database masih berupa ciphertext. Buka di sini, tepat
+	// sebelum keluar dari lapisan repository, supaya lapisan di atasnya
+	// tidak pernah melihat bentuk tersandi.
+	if p.PhoneNumber != nil {
+		plain, err := r.cipher.Decrypt(*p.PhoneNumber, PhoneAAD(p.UserID))
+		if err != nil {
+			return nil, fmt.Errorf("dekripsi nomor telepon: %w", err)
+		}
+		p.PhoneNumber = &plain
+	}
+	if p.Address != nil {
+		plain, err := r.cipher.Decrypt(*p.Address, AddressAAD(p.UserID))
+		if err != nil {
+			return nil, fmt.Errorf("dekripsi alamat: %w", err)
+		}
+		p.Address = &plain
+	}
+
+	return &p, nil
+}
+
+// UpdateProfile menyimpan perubahan nama, telepon, dan alamat.
+//
+// Perhatikan syarat `u.role = 'pendamping'` pada UPDATE companion:
+// tanpa syarat itu, pengguna tunanetra bisa tanpa sengaja dibuatkan baris
+// companion — padahal perannya bukan pendamping.
+func (r *postgresRepository) UpdateProfile(ctx context.Context, userID, name string, phoneNumber, address *string) error {
+	// Enkripsi dulu sebelum menyentuh database.
+	encryptedPhone, err := r.encryptPhone(userID, phoneNumber)
+	if err != nil {
+		return err
+	}
+	encryptedAddress, err := r.encryptAddress(userID, address)
+	if err != nil {
+		return err
+	}
+
+	return database.WithActor(ctx, r.pool, userID, func(tx pgx.Tx) error {
+		const updateUser = `UPDATE "user" SET name = $2 WHERE user_id = $1`
+		if _, err := tx.Exec(ctx, updateUser, userID, name); err != nil {
+			return fmt.Errorf("ubah nama pengguna: %w", err)
+		}
+
+		const updateCompanion = `
+			UPDATE public.companion c
+			SET phone_number = $2, address = $3
+			FROM "user" u
+			WHERE c.user_id = u.user_id
+			  AND u.user_id = $1
+			  AND u.role = $4`
+
+		if _, err := tx.Exec(ctx, updateCompanion, userID, encryptedPhone, encryptedAddress, RolePendamping); err != nil {
+			return fmt.Errorf("ubah profil pendamping: %w", err)
+		}
+
+		return nil
+	})
+}
+
+// encryptPhone dan encryptAddress membungkus dua hal yang selalu terjadi
+// bersamaan: menangani nilai NULL dan memberi AAD yang benar.
+//
+// AAD mengikat ciphertext ke pemiliknya. Tanpa AAD, ciphertext nomor
+// telepon milik A bisa disalin ke baris B, lalu aplikasi akan menampilkan
+// nomor A sebagai milik B — enkripsinya tetap sah, tapi datanya tertukar.
+func (r *postgresRepository) encryptPhone(userID string, plain *string) (*string, error) {
+	if plain == nil {
+		return nil, nil
+	}
+	encrypted, err := r.cipher.Encrypt(*plain, PhoneAAD(userID))
+	if err != nil {
+		return nil, fmt.Errorf("enkripsi nomor telepon: %w", err)
+	}
+	return &encrypted, nil
+}
+
+func (r *postgresRepository) encryptAddress(userID string, plain *string) (*string, error) {
+	if plain == nil {
+		return nil, nil
+	}
+	encrypted, err := r.cipher.Encrypt(*plain, AddressAAD(userID))
+	if err != nil {
+		return nil, fmt.Errorf("enkripsi alamat: %w", err)
+	}
+	return &encrypted, nil
+}
+
+// AAD (Additional Authenticated Data) untuk masing-masing kolom.
+// Memakai user_id + nama kolom membuat ciphertext tidak bisa dipindah
+// ke pengguna atau kolom lain tanpa membuat dekripsi gagal.
+func PhoneAAD(userID string) string   { return userID + ":phone_number" }
+func AddressAAD(userID string) string { return userID + ":address" }
 
 // isUniqueViolation menjawab pertanyaan: apakah error ini berasal dari
 // aturan UNIQUE di PostgreSQL?

@@ -18,7 +18,7 @@ BINARY   := bin/server
 
 .DEFAULT_GOAL := help
 
-.PHONY: help run build tidy fmt vet test check clean seed psql db-dump
+.PHONY: help run build tidy fmt vet test check clean seed psql db-dump encrypt-profiles
 
 # ---------------------------------------------------------------- bantuan
 
@@ -58,6 +58,9 @@ clean: ## Hapus hasil build
 
 seed: ## Isi database dengan data uji
 	go run ./cmd/seed
+
+encrypt-profiles: ## Enkripsi data profil lama yang masih plaintext
+	go run ./cmd/encrypt-profiles
 
 psql: ## Buka psql ke database (seperti `php artisan db`)
 	psql -h $(DB_HOST) -p $(DB_PORT) -U $(DB_USER) -d $(DB_NAME)
