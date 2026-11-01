@@ -299,8 +299,8 @@ class _ProgressBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final Color track = onLight
-        ? _kDeep.withOpacity(0.25)
-        : Colors.white.withOpacity(0.35);
+        ? _kDeep.withValues(alpha: 0.25)
+        : Colors.white.withValues(alpha: 0.35);
     final Color fill = onLight ? _kDeep : Colors.white;
 
     return ClipRRect(
