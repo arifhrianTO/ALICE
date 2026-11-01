@@ -79,9 +79,11 @@ func (r *postgresRepository) FindByEmail(ctx context.Context, email string) (*Us
 	// Kalau memakai bintang, lalu suatu hari ada kolom baru bertipe aneh,
 	// query yang tadinya sehat bisa tiba-tiba gagal.
 	const query = `
-		SELECT user_id, role, email, password, auth_provider, name, provider_id
-		FROM "user"
-		WHERE email = $1`
+		SELECT u.user_id, u.role, u.email, u.password, u.auth_provider, u.name, u.provider_id,
+		       COALESCE(c.phone_number, ''), COALESCE(c.address, '')
+		FROM "user" u
+		LEFT JOIN public.companion c ON u.user_id = c.user_id
+		WHERE u.email = $1`
 
 	// "$1" adalah placeholder nilai. Nilainya dikirim terpisah lewat
 	// parameter kedua QueryRow, TIDAK ditempel ke dalam teks query.
@@ -95,6 +97,8 @@ func (r *postgresRepository) FindByEmail(ctx context.Context, email string) (*Us
 		&u.AuthProvider,
 		&u.Name,
 		&u.ProviderID,
+		&u.PhoneNumber,
+		&u.Address,
 	)
 
 	// ErrNoRows artinya query berjalan lancar tapi tidak ada barisnya.
@@ -141,29 +145,24 @@ func (r *postgresRepository) Create(ctx context.Context, u *User) error {
 		}
 
 		// Baris profil dipilih menurut peran.
-		insertProfile, err := profileInsertQuery(u.Role)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, insertProfile, u.UserID); err != nil {
-			return fmt.Errorf("simpan profil %s: %w", u.Role, err)
+		if u.Role == RolePendamping {
+			const insertProfile = `
+				INSERT INTO public.companion (user_id, phone_number, address)
+				VALUES ($1, $2, $3)`
+			if _, err := tx.Exec(ctx, insertProfile, u.UserID, u.PhoneNumber, u.Address); err != nil {
+				return fmt.Errorf("simpan profil %s: %w", u.Role, err)
+			}
+		} else if u.Role == RoleTunanetra {
+			const insertProfile = `INSERT INTO public.visually_impaired (user_id) VALUES ($1)`
+			if _, err := tx.Exec(ctx, insertProfile, u.UserID); err != nil {
+				return fmt.Errorf("simpan profil %s: %w", u.Role, err)
+			}
+		} else {
+			return fmt.Errorf("peran tidak dikenal: %q", u.Role)
 		}
 
 		return nil
 	})
-}
-
-// profileInsertQuery mengembalikan perintah INSERT untuk tabel profil yang
-// sesuai dengan peran pengguna.
-func profileInsertQuery(role string) (string, error) {
-	switch role {
-	case RolePendamping:
-		return `INSERT INTO public.companion (user_id) VALUES ($1)`, nil
-	case RoleTunanetra:
-		return `INSERT INTO public.visually_impaired (user_id) VALUES ($1)`, nil
-	default:
-		return "", fmt.Errorf("peran tidak dikenal: %q", role)
-	}
 }
 
 // isUniqueViolation menjawab pertanyaan: apakah error ini berasal dari

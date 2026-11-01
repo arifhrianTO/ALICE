@@ -140,10 +140,12 @@ func NewService(users user.Repository, sessions SessionRepository, pool *pgxpool
 // dipanggil dari perintah terminal (misalnya `make seed`), struct ini
 // tetap bisa dipakai apa adanya.
 type RegisterInput struct {
-	Name     string
-	Email    string
-	Password string
-	Role     string
+	Name        string
+	Email       string
+	Password    string
+	Role        string
+	PhoneNumber string
+	Address     string
 }
 
 // RegisterResult adalah hasil pendaftaran yang berhasil.
@@ -195,6 +197,8 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*RegisterResu
 		Password:     &hashStr,
 		Role:         role,
 		AuthProvider: user.AuthProviderEmail,
+		PhoneNumber:  strings.TrimSpace(in.PhoneNumber),
+		Address:      strings.TrimSpace(in.Address),
 	}
 
 	if err := s.users.Create(ctx, u); err != nil {

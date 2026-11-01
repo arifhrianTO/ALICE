@@ -242,31 +242,37 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Widget _infoCard(IconData icon, String text,
       {Color? iconColor, Color? textColor, VoidCallback? onTap}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: kFieldBg,
-        elevation: 2,
-        shadowColor: Colors.black26,
-        borderRadius: BorderRadius.circular(20),
-        child: InkWell(
+    return Semantics(
+      button: onTap != null,
+      label: text,
+      hint: onTap != null ? 'Ketuk dua kali untuk $text' : null,
+      excludeSemantics: true,
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Material(
+          color: kFieldBg,
+          elevation: 2,
+          shadowColor: Colors.black26,
           borderRadius: BorderRadius.circular(20),
-          onTap: onTap,
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
-            child: Row(
-              children: [
-                Icon(icon, color: iconColor ?? kPurple, size: 28),
-                const SizedBox(width: 20),
-                Expanded(
-                  child: Text(text,
-                      style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w500,
-                          color: textColor ?? kTextPurple)),
-                ),
-              ],
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: onTap,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
+              child: Row(
+                children: [
+                  Icon(icon, color: iconColor ?? kPurple, size: 28),
+                  const SizedBox(width: 20),
+                  Expanded(
+                    child: Text(text,
+                        style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: textColor ?? kTextPurple)),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

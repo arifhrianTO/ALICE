@@ -26,10 +26,12 @@ import "time"
 // Tanpa tag ini, Go akan memakai nama field apa adanya dan klien harus
 // menulis "Name", "Email" — huruf besar semua, tidak lazim untuk JSON.
 type RegisterRequest struct {
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-	Role     string `json:"role"`
+	Name        string `json:"name"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	Role        string `json:"role"`
+	PhoneNumber string `json:"phone_number"`
+	Address     string `json:"address"`
 }
 
 // UserResponse adalah data pengguna yang AMAN dikirim ke klien.
@@ -40,10 +42,12 @@ type RegisterRequest struct {
 // aman daripada menyerahkan struct User mentah-mentah lalu berharap tag
 // `json:"-"` tidak pernah terhapus.
 type UserResponse struct {
-	UserID string `json:"user_id"`
-	Name   string `json:"name"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
+	UserID      string `json:"user_id"`
+	Name        string `json:"name"`
+	Email       string `json:"email"`
+	Role        string `json:"role"`
+	PhoneNumber string `json:"phone_number,omitempty"`
+	Address     string `json:"address,omitempty"`
 }
 
 // RegisterResponse adalah isi field `data` saat pendaftaran berhasil.

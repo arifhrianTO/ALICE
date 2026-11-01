@@ -109,9 +109,11 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/icons/logo_icon.png"
+  image_path: "assets/icons/app_icon_squircle.png"
   min_sdk_android: 21
+  adaptive_icon_background: "#46337E"
+  adaptive_icon_foreground: "assets/icons/logo_icon.png"
   web:
     generate: true
-    image_path: "assets/icons/logo_icon.png"
+    image_path: "assets/icons/app_icon_squircle.png"
 
