@@ -23,6 +23,9 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
   final nameC = TextEditingController();
   final emailC = TextEditingController();
   final passC = TextEditingController();
+  final confirmC = TextEditingController();
+  final phoneC = TextEditingController();
+  final addressC = TextEditingController();
   bool loading = false;
   String? error;
 
@@ -31,16 +34,29 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
     nameC.dispose();
     emailC.dispose();
     passC.dispose();
+    confirmC.dispose();
+    phoneC.dispose();
+    addressC.dispose();
     super.dispose();
   }
 
   String _roleLabel(String r) =>
       r == 'tunanetra' ? 'Penyandang Tunanetra' : 'Pendamping';
 
+  /// Sama dengan aturan backend: buang spasi/tanda hubung, lalu terima
+  /// nomor yang diawali "+" dan berisi 9–15 digit.
+  bool _isValidPhone(String raw) {
+    final cleaned = raw.replaceAll(RegExp(r'[^0-9+]'), '');
+    return RegExp(r'^\+?[0-9]{9,15}$').hasMatch(cleaned);
+  }
+
   Future<void> _submit() async {
     final email = emailC.text.trim();
     final pass = passC.text;
     final name = nameC.text.trim();
+    final confirm = confirmC.text;
+    final phone = phoneC.text.trim();
+    final address = addressC.text.trim();
 
     if (isRegister && name.isEmpty) {
       setState(() => error = 'Mohon masukkan nama lengkap Anda.');
@@ -52,6 +68,18 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
     }
     if (pass.length < 6) {
       setState(() => error = 'Password minimal 6 karakter.');
+      return;
+    }
+    if (isRegister && confirm != pass) {
+      setState(() => error = 'Konfirmasi password tidak cocok.');
+      return;
+    }
+    if (isRegister && !_isValidPhone(phone)) {
+      setState(() => error = 'Mohon masukkan nomor telepon yang valid.');
+      return;
+    }
+    if (isRegister && address.length > 255) {
+      setState(() => error = 'Alamat maksimal 255 karakter.');
       return;
     }
 
@@ -69,6 +97,8 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
               'email': email,
               'password': pass,
               'role': widget.role,
+              'phone_number': phone,
+              'address': address,
             }
           : {
               'email': email,
@@ -95,6 +125,7 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
       final payload = data['data'] as Map<String, dynamic>? ?? {};
       final user = payload['user'] as Map<String, dynamic>? ?? {};
       final token = payload['token'] as String? ?? '';
+      final userID = user['user_id'] as String? ?? '';
       final userName = user['name'] as String? ?? name;
       final userEmail = user['email'] as String? ?? email;
       final userRole = user['role'] as String? ?? widget.role;
@@ -103,9 +134,17 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isLoggedIn', true);
       await prefs.setString('session_token', token);
+      await prefs.setString('user_id', userID);
       await prefs.setString('user_role', userRole);
       await prefs.setString('user_name', userName);
       await prefs.setString('user_email', userEmail);
+
+      // Telepon & alamat hanya dikirim saat daftar. Saat login, halaman
+      // profil akan mengambil data terbaru dari backend.
+      if (isRegister) {
+        await prefs.setString('user_phone', phone);
+        await prefs.setString('user_address', address);
+      }
 
       if (!mounted) return;
 
@@ -173,12 +212,38 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
                 style: const TextStyle(color: Colors.white),
                 decoration: _dec('Email', Icons.email_outlined),
               ),
+              const SizedBox(height: 14),
               TextField(
                 controller: passC,
                 obscureText: true,
                 style: const TextStyle(color: Colors.white),
                 decoration: _dec('Password (min 6 karakter)', Icons.lock_outline),
               ),
+              if (isRegister) ...[
+                const SizedBox(height: 14),
+                TextField(
+                  controller: confirmC,
+                  obscureText: true,
+                  style: const TextStyle(color: Colors.white),
+                  decoration:
+                      _dec('Konfirmasi password', Icons.lock_outline),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: phoneC,
+                  keyboardType: TextInputType.phone,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: _dec('Nomor telepon', Icons.phone_outlined),
+                ),
+                const SizedBox(height: 14),
+                TextField(
+                  controller: addressC,
+                  maxLines: 2,
+                  keyboardType: TextInputType.streetAddress,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: _dec('Alamat (opsional)', Icons.location_on_outlined),
+                ),
+              ],
               if (error != null) ...[
                 const SizedBox(height: 12),
                 Text(
