@@ -1,3 +1,4 @@
+
 import 'package:flutter/material.dart';
 
 import '../../../core/colors.dart';
@@ -48,8 +49,11 @@ class _KelolaJadwalPageState extends State<KelolaJadwalPage> {
                       child: const SizedBox(
                         width: 30,
                         height: 30,
-                        child: Icon(Icons.chevron_left_rounded,
-                            color: Colors.white, size: 22),
+                        child: Icon(
+                          Icons.chevron_left_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        ),
                       ),
                     ),
                   ),
@@ -83,7 +87,9 @@ class _KelolaJadwalPageState extends State<KelolaJadwalPage> {
                               child: Text(
                                 'Belum ada jadwal',
                                 style: TextStyle(
-                                    fontSize: 13, color: Colors.black45),
+                                  fontSize: 13,
+                                  color: Colors.black45,
+                                ),
                               ),
                             )
                           : ListView.separated(
@@ -114,12 +120,21 @@ class _KelolaJadwalPageState extends State<KelolaJadwalPage> {
 //  TAB STATUS
 // =====================================================================
 class StatusTabs extends StatelessWidget {
-  static const labels = ['Semua', 'Disetujui', 'Menunggu', 'Ditolak'];
+  static const labels = [
+    'Semua',
+    'Disetujui',
+    'Menunggu',
+    'Ditolak'
+  ];
 
   final int index;
   final ValueChanged<int> onChanged;
 
-  const StatusTabs({super.key, required this.index, required this.onChanged});
+  const StatusTabs({
+    super.key,
+    required this.index,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -170,9 +185,11 @@ class StatusTabs extends StatelessWidget {
                           child: AnimatedDefaultTextStyle(
                             duration: const Duration(milliseconds: 200),
                             style: TextStyle(
-                              fontSize: 12,
+                              fontSize: 14,
                               fontWeight: FontWeight.w700,
-                              color: i == index ? kTextPurple : Colors.white,
+                              color: i == index
+                                  ? kTextPurple
+                                  : Colors.white,
                             ),
                             child: Text(labels[i]),
                           ),
@@ -194,6 +211,7 @@ class StatusTabs extends StatelessWidget {
 // =====================================================================
 class ManageCard extends StatelessWidget {
   final Schedule schedule;
+
   const ManageCard({super.key, required this.schedule});
 
   @override
@@ -212,8 +230,7 @@ class ManageCard extends StatelessWidget {
                     padding: const EdgeInsets.only(top: 2),
                     child: Text(
                       schedule.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                      softWrap: true,
                       style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w600,
@@ -222,7 +239,7 @@ class ManageCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 6),
+                const SizedBox(width: 4),
                 OutlineBadge(
                   text: 'Dibuat oleh ${schedule.createdBy}',
                 ),
@@ -234,7 +251,7 @@ class ManageCard extends StatelessWidget {
               children: [
                 const Icon(
                   Icons.access_time_rounded,
-                  size: 26,
+                  size: 24,
                   color: kTextPurple,
                 ),
                 const SizedBox(width: 6),
@@ -257,23 +274,21 @@ class ManageCard extends StatelessWidget {
                   minutes: schedule.reminderMinutes,
                 ),
 
-                // Tombol hanya muncul jika status bukan Menunggu
-                if (schedule.status != ScheduleStatus.pending) ...[
+                // Tombol hanya muncul jika status Disetujui
+                if (schedule.status == ScheduleStatus.approved) ...[
                   const Spacer(),
                   _SmallIconButton(
                     icon: Icons.edit_rounded,
                     color: kPurple,
                     background: const Color(0xFFEDE9FF),
-                    onTap: () =>
-                        showEditScheduleDialog(context, schedule),
+                    onTap: () => showEditScheduleDialog(context, schedule),
                   ),
                   const SizedBox(width: 6),
                   _SmallIconButton(
                     icon: Icons.delete_outline_rounded,
                     color: const Color(0xFFC62828),
                     background: const Color(0xFFFFE9E9),
-                    onTap: () =>
-                        showDeleteScheduleDialog(context, schedule),
+                    onTap: () => showDeleteScheduleDialog(context, schedule),
                   ),
                 ],
               ],
@@ -321,6 +336,7 @@ class _SmallIconButton extends StatelessWidget {
 
 class RoundFab extends StatefulWidget {
   final VoidCallback onTap;
+
   const RoundFab({super.key, required this.onTap});
 
   @override
@@ -355,7 +371,11 @@ class _RoundFabState extends State<RoundFab> {
               ),
             ],
           ),
-          child: const Icon(Icons.add_rounded, color: Colors.white, size: 38),
+          child: const Icon(
+            Icons.add_rounded,
+            color: Colors.white,
+            size: 38,
+          ),
         ),
       ),
     );
