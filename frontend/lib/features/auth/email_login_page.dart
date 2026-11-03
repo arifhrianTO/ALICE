@@ -25,6 +25,7 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
 
   bool isRegister = false;
   bool obscurePassword = true;
+  bool obscureConfirm = true;
 
   final nameC = TextEditingController();
   final phoneC = TextEditingController();
@@ -43,8 +44,6 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
     emailC.dispose();
     passC.dispose();
     confirmC.dispose();
-    phoneC.dispose();
-    addressC.dispose();
     super.dispose();
   }
 
@@ -391,6 +390,41 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
                   ),
                 ),
               ),
+
+              // Konfirmasi kata sandi (hanya saat daftar)
+              if (isRegister) ...[
+                const SizedBox(height: 14),
+                Semantics(
+                  label: 'Kolom input konfirmasi kata sandi',
+                  textField: true,
+                  child: TextField(
+                    controller: confirmC,
+                    obscureText: obscureConfirm,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => _submit(),
+                    style: const TextStyle(color: Colors.white),
+                    decoration: _dec(
+                      hint: 'Ulangi kata sandi',
+                      label: 'Konfirmasi Kata Sandi',
+                      icon: Icons.lock_outline,
+                      suffix: IconButton(
+                        icon: Icon(
+                          obscureConfirm
+                              ? Icons.visibility_outlined
+                              : Icons.visibility_off_outlined,
+                          color: Colors.white70,
+                          size: 20,
+                        ),
+                        tooltip: obscureConfirm
+                            ? 'Tampilkan kata sandi'
+                            : 'Sembunyikan kata sandi',
+                        onPressed: () => setState(
+                            () => obscureConfirm = !obscureConfirm),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
 
               // Error banner jika ada
               if (error != null) ...[
