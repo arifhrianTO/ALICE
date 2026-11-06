@@ -69,3 +69,9 @@ type LoginRequest struct {
 
 // LoginResponse bentuk balasan sama dengan register: kembalikan user + token.
 type LoginResponse = RegisterResponse
+
+// GoogleLoginRequest adalah isi badan permintaan POST /api/auth/google.
+type GoogleLoginRequest struct {
+	IDToken string `json:"id_token"`
+	Role    string `json:"role"`
+}

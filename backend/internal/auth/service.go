@@ -12,8 +12,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"regexp"
 	"strings"
 	"time"
@@ -53,6 +56,9 @@ var ErrEmailTaken = errors.New("email sudah terdaftar")
 // ErrInvalidCredentials dikembalikan saat email tidak ada atau password salah.
 // Pesan sengaja dibuat samar supaya tidak membocorkan keberadaan email.
 var ErrInvalidCredentials = errors.New("email atau password salah")
+
+// ErrProviderMismatch dikembalikan saat email sudah terdaftar dengan metode login lain.
+var ErrProviderMismatch = errors.New("email sudah terdaftar dengan metode lain, gunakan login email")
 
 // invalid membuat ValidationError dengan ringkas.
 func invalid(message string) error {
@@ -122,15 +128,16 @@ var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 // tidak ada anotasi — cukup parameter fungsi. Efeknya: saat menulis test,
 // cukup membuat tiruan dua repository itu, tanpa menyentuh database.
 type Service struct {
-	users    user.Repository
-	sessions SessionRepository
-	pool     *pgxpool.Pool
-	ttl      time.Duration
+	users          user.Repository
+	sessions       SessionRepository
+	pool           *pgxpool.Pool
+	ttl            time.Duration
+	googleClientID string
 }
 
 // NewService merakit Service beserta seluruh kebutuhannya.
-func NewService(users user.Repository, sessions SessionRepository, pool *pgxpool.Pool, ttl time.Duration) *Service {
-	return &Service{users: users, sessions: sessions, pool: pool, ttl: ttl}
+func NewService(users user.Repository, sessions SessionRepository, pool *pgxpool.Pool, ttl time.Duration, googleClientID string) *Service {
+	return &Service{users: users, sessions: sessions, pool: pool, ttl: ttl, googleClientID: googleClientID}
 }
 
 // RegisterInput adalah data yang dibutuhkan untuk mendaftar.
@@ -389,4 +396,99 @@ func newToken() (string, error) {
 		return "", fmt.Errorf("buat token acak: %w", err)
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+// googleTokenInfo adalah respons dari endpoint tokeninfo Google.
+type googleTokenInfo struct {
+	Sub           string `json:"sub"`
+	Email         string `json:"email"`
+	Name          string `json:"name"`
+	Aud           string `json:"aud"`
+	EmailVerified string `json:"email_verified"`
+	Error         string `json:"error"`
+}
+
+// LoginWithGoogle memverifikasi ID token Google dan masuk (atau mendaftar) pengguna.
+func (s *Service) LoginWithGoogle(ctx context.Context, idToken string, role string) (*LoginResult, error) {
+	// 1. Verifikasi ID token ke Google.
+	resp, err := http.Get("https://oauth2.googleapis.com/tokeninfo?id_token=" + idToken)
+	if err != nil {
+		return nil, fmt.Errorf("verifikasi token Google: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("baca respons Google: %w", err)
+	}
+
+	var info googleTokenInfo
+	if err := json.Unmarshal(body, &info); err != nil {
+		return nil, fmt.Errorf("urai respons Google: %w", err)
+	}
+
+	if info.Error != "" {
+		return nil, invalid("ID token Google tidak valid")
+	}
+
+	// 2. Validasi aud dan email_verified.
+	if info.Aud != s.googleClientID {
+		return nil, invalid("ID token tidak untuk aplikasi ini")
+	}
+	if info.EmailVerified != "true" {
+		return nil, invalid("email Google belum diverifikasi")
+	}
+
+	email := strings.ToLower(strings.TrimSpace(info.Email))
+
+	// 3. Cek apakah user sudah ada.
+	u, err := s.users.FindByEmail(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+
+	if u != nil {
+		// User ada tapi bukan dari Google → tolak.
+		if u.AuthProvider != user.AuthProviderGoogle {
+			return nil, ErrProviderMismatch
+		}
+	} else {
+		// User belum ada → buat baru.
+		sub := info.Sub
+		u = &user.User{
+			Name:         info.Name,
+			Email:        &email,
+			Password:     nil,
+			Role:         strings.TrimSpace(role),
+			AuthProvider: user.AuthProviderGoogle,
+			ProviderID:   &sub,
+		}
+		if err := s.users.Create(ctx, user.CreateInput{User: u}); err != nil {
+			if errors.Is(err, user.ErrEmailTaken) {
+				return nil, ErrEmailTaken
+			}
+			return nil, err
+		}
+	}
+
+	// 4. Buat session.
+	token, err := newToken()
+	if err != nil {
+		return nil, err
+	}
+
+	session := &Session{
+		UserID:       u.UserID,
+		SessionToken: token,
+		ExpiredAt:    time.Now().Add(s.ttl),
+	}
+	if err := s.sessions.Create(ctx, session); err != nil {
+		return nil, err
+	}
+
+	return &LoginResult{
+		User:      u,
+		Token:     token,
+		ExpiredAt: session.ExpiredAt,
+	}, nil
 }

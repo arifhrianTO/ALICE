@@ -39,6 +39,7 @@ type Config struct {
 	// Kunci ini HANYA boleh hidup di environment aplikasi, tidak pernah
 	// disimpan di database.
 	ProfileEncryptionKey []byte
+	GoogleClientID       string // Client ID OAuth 2.0 dari Google Cloud Console
 }
 
 // Load merakit konfigurasi dari file .env (kalau ada) dan environment sistem.
@@ -92,6 +93,7 @@ func Load() (*Config, error) {
 		DBSSLMode:            getEnv("DB_SSLMODE", "disable"),
 		SessionTTLHours:      ttl,
 		ProfileEncryptionKey: key,
+		GoogleClientID:       getEnv("GOOGLE_CLIENT_ID", ""),
 	}
 
 	if cfg.DBUser == "" || cfg.DBName == "" {
