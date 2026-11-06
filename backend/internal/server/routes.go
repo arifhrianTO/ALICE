@@ -99,6 +99,7 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 		sessionRepo,
 		db,
 		time.Duration(cfg.SessionTTLHours)*time.Hour,
+		cfg.GoogleClientID,
 	)
 
 	// Lapis 3: handler. Hanya tahu soal HTTP.
@@ -124,6 +125,7 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 		// --- M1: auth inti ---
 		api.POST("/auth/register", authHandler.Register)
 		api.POST("/auth/login", authHandler.Login)
+		api.POST("/auth/google", authHandler.GoogleLogin)
 
 		// --- M2: endpoint yang butuh token ---
 		// Middleware.Auth membaca header `Authorization: Bearer <token>`,

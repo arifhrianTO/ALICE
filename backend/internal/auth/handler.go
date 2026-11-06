@@ -125,6 +125,39 @@ func (h *Handler) Login(c *gin.Context) {
 	}))
 }
 
+// GoogleLogin melayani `POST /api/auth/google`.
+func (h *Handler) GoogleLogin(c *gin.Context) {
+	var req GoogleLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, response.Fail("format JSON tidak valid"))
+		return
+	}
+
+	res, err := h.svc.LoginWithGoogle(c.Request.Context(), req.IDToken, req.Role)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+
+	email := ""
+	if res.User.Email != nil {
+		email = *res.User.Email
+	}
+
+	c.JSON(http.StatusOK, response.OK("login berhasil", LoginResponse{
+		User: UserResponse{
+			UserID:      res.User.UserID,
+			Name:        res.User.Name,
+			Email:       email,
+			Role:        res.User.Role,
+			PhoneNumber: res.User.PhoneNumber,
+			Address:     res.User.Address,
+		},
+		Token:     res.Token,
+		ExpiredAt: res.ExpiredAt,
+	}))
+}
+
 // writeError memilih kode status HTTP yang pantas untuk tiap jenis error.
 //
 // Ini satu-satunya tempat di package ini yang tahu soal kode status.
@@ -153,6 +186,9 @@ func writeError(c *gin.Context, err error) {
 
 	case errors.Is(err, ErrInvalidCredentials):
 		c.JSON(http.StatusUnauthorized, response.Fail(err.Error()))
+
+	case errors.Is(err, ErrProviderMismatch):
+		c.JSON(http.StatusConflict, response.Fail(err.Error()))
 
 	default:
 		// Kesalahan tak terduga: catat selengkapnya di log server, tapi
