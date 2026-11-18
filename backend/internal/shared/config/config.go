@@ -40,6 +40,8 @@ type Config struct {
 	// disimpan di database.
 	ProfileEncryptionKey []byte
 	GoogleClientID       string // Client ID OAuth 2.0 dari Google Cloud Console
+	FacebookAppID        string // App ID dari Meta for Developers
+	FacebookAppSecret    string // App Secret dari Meta for Developers
 }
 
 // Load merakit konfigurasi dari file .env (kalau ada) dan environment sistem.
@@ -94,6 +96,8 @@ func Load() (*Config, error) {
 		SessionTTLHours:      ttl,
 		ProfileEncryptionKey: key,
 		GoogleClientID:       getEnv("GOOGLE_CLIENT_ID", ""),
+		FacebookAppID:        getEnv("FACEBOOK_APP_ID", ""),
+		FacebookAppSecret:    getEnv("FACEBOOK_APP_SECRET", ""),
 	}
 
 	if cfg.DBUser == "" || cfg.DBName == "" {
@@ -137,7 +141,16 @@ func (c *Config) DSN() string {
 // Kalau tidak ada atau kosong, kembalikan nilai cadangan.
 func getEnv(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {
-		return v
+		// Buang kutip yang mungkin ikut tertulis di .env, misalnya:
+		//   GOOGLE_CLIENT_ID="....apps.googleusercontent.com"
+		// Makefile meng-export isi .env apa adanya, dan godotenv tidak
+		// menimpa variabel yang sudah ada. Tanpa pembersihan ini, nilai
+		// yang dipakai bisa ikut membawa tanda kutip.
+		v = strings.TrimSpace(v)
+		v = strings.Trim(v, `"'`)
+		if v != "" {
+			return v
+		}
 	}
 	return fallback
 }

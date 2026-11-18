@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	"alice-backend/internal/shared/response"
 
@@ -125,6 +126,26 @@ func (h *Handler) Login(c *gin.Context) {
 	}))
 }
 
+// Logout melayani `POST /api/auth/logout`.
+//
+// Endpoint ini dilindungi middleware.Auth, jadi token sudah terbukti sah.
+// Handler tinggal mencabut sesi yang sesuai dengan token tersebut.
+func (h *Handler) Logout(c *gin.Context) {
+	authHeader := c.GetHeader("Authorization")
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 {
+		c.JSON(http.StatusUnauthorized, response.Fail("token autentikasi tidak ditemukan"))
+		return
+	}
+
+	if err := h.svc.Logout(c.Request.Context(), parts[1]); err != nil {
+		writeError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, response.OK("logout berhasil", nil))
+}
+
 // GoogleLogin melayani `POST /api/auth/google`.
 func (h *Handler) GoogleLogin(c *gin.Context) {
 	var req GoogleLoginRequest
@@ -134,6 +155,39 @@ func (h *Handler) GoogleLogin(c *gin.Context) {
 	}
 
 	res, err := h.svc.LoginWithGoogle(c.Request.Context(), req.IDToken, req.Role)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+
+	email := ""
+	if res.User.Email != nil {
+		email = *res.User.Email
+	}
+
+	c.JSON(http.StatusOK, response.OK("login berhasil", LoginResponse{
+		User: UserResponse{
+			UserID:      res.User.UserID,
+			Name:        res.User.Name,
+			Email:       email,
+			Role:        res.User.Role,
+			PhoneNumber: res.User.PhoneNumber,
+			Address:     res.User.Address,
+		},
+		Token:     res.Token,
+		ExpiredAt: res.ExpiredAt,
+	}))
+}
+
+// FacebookLogin melayani `POST /api/auth/facebook`.
+func (h *Handler) FacebookLogin(c *gin.Context) {
+	var req FacebookLoginRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, response.Fail("format JSON tidak valid"))
+		return
+	}
+
+	res, err := h.svc.LoginWithFacebook(c.Request.Context(), req.AccessToken, req.TokenType, req.Role)
 	if err != nil {
 		writeError(c, err)
 		return
@@ -198,7 +252,7 @@ func writeError(c *gin.Context, err error) {
 		// berisi nama tabel, nama kolom, atau alamat database. Detail
 		// seperti itu membantu penyerang memetakan sistem kita, dan tidak
 		// berguna sama sekali bagi pengguna.
-		log.Printf("[ERROR] register gagal: %v", err)
+		log.Printf("[ERROR] autentikasi gagal: %v", err)
 		c.JSON(http.StatusInternalServerError, response.Fail("terjadi kesalahan pada server"))
 	}
 }

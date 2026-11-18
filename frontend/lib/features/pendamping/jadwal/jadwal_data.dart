@@ -1,5 +1,4 @@
-
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 // =====================================================================
 // HELPER TANGGAL & WAKTU
@@ -48,9 +47,7 @@ DateTime initialDate() {
   final now = DateTime.now();
 
   return dateOnly(
-    now.weekday > kStripDays
-        ? now.add(Duration(days: 8 - now.weekday))
-        : now,
+    now.weekday > kStripDays ? now.add(Duration(days: 8 - now.weekday)) : now,
   );
 }
 
@@ -59,29 +56,16 @@ DateTime nextWeekday(int weekday) {
   final today = dateOnly(DateTime.now());
   final diff = (weekday - today.weekday + 7) % 7;
 
-  return DateTime(
-    today.year,
-    today.month,
-    today.day + diff,
-  );
+  return DateTime(today.year, today.month, today.day + diff);
 }
 
 // =====================================================================
 // MODEL JADWAL
 // =====================================================================
 
-enum RepeatType {
-  once,
-  weekday,
-  daily,
-  weekly,
-}
+enum RepeatType { once, weekday, daily, weekly }
 
-enum ScheduleStatus {
-  approved,
-  pending,
-  rejected,
-}
+enum ScheduleStatus { approved, pending, rejected }
 
 extension RepeatTypeX on RepeatType {
   String dropdownLabel(int weekday) {
@@ -154,12 +138,7 @@ class Schedule {
   String get reminderTime {
     final m = (minutes - reminderMinutes) % 1440;
 
-    return formatTime(
-      TimeOfDay(
-        hour: m ~/ 60,
-        minute: m % 60,
-      ),
-    );
+    return formatTime(TimeOfDay(hour: m ~/ 60, minute: m % 60));
   }
 
   /// Label pengulangan pada kartu jadwal.
@@ -232,6 +211,14 @@ class ScheduleStore extends ChangeNotifier {
   int _counter = 0;
 
   String _nextId() => 's${_counter++}';
+
+  /// Kosongkan semua jadwal. Dipakai saat logout / berganti akun agar
+  /// jadwal pengguna sebelumnya tidak terlihat oleh pengguna berikutnya.
+  void reset() {
+    _items.clear();
+    _counter = 0;
+    notifyListeners();
+  }
 
   // ===============================================================
   // DATA AWAL
@@ -316,14 +303,13 @@ class ScheduleStore extends ChangeNotifier {
 
   /// Mengambil jadwal yang disetujui dan berlangsung pada tanggal tertentu.
   List<Schedule> forDay(DateTime day) {
-    final r = _items
-        .where(
-          (s) =>
-              s.status == ScheduleStatus.approved &&
-              s.occursOn(day),
-        )
-        .toList()
-      ..sort((a, b) => a.minutes.compareTo(b.minutes));
+    final r =
+        _items
+            .where(
+              (s) => s.status == ScheduleStatus.approved && s.occursOn(day),
+            )
+            .toList()
+          ..sort((a, b) => a.minutes.compareTo(b.minutes));
 
     return r;
   }
@@ -333,11 +319,7 @@ class ScheduleStore extends ChangeNotifier {
   // ===============================================================
 
   List<Schedule> byStatus(ScheduleStatus? status) {
-    final r = _items
-        .where(
-          (s) => status == null || s.status == status,
-        )
-        .toList()
+    final r = _items.where((s) => status == null || s.status == status).toList()
       ..sort((a, b) => a.minutes.compareTo(b.minutes));
 
     return r;
@@ -348,12 +330,7 @@ class ScheduleStore extends ChangeNotifier {
   // ===============================================================
 
   /// Jadwal baru menggunakan tanggal yang dipilih melalui kalender.
-  void add(
-    String title,
-    RepeatType repeat,
-    TimeOfDay time,
-    DateTime date,
-  ) {
+  void add(String title, RepeatType repeat, TimeOfDay time, DateTime date) {
     _items.add(
       Schedule(
         id: _nextId(),
@@ -416,9 +393,7 @@ class ScheduleStore extends ChangeNotifier {
 
     if (i < 0) return;
 
-    _items[i] = _items[i].copyWith(
-      status: status,
-    );
+    _items[i] = _items[i].copyWith(status: status);
 
     notifyListeners();
   }

@@ -3,6 +3,8 @@
 #
 
 list(APPEND FLUTTER_PLUGIN_LIST
+  facebook_auth_desktop
+  flutter_secure_storage_windows
   flutter_tts
 )
 

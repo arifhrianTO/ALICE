@@ -1,7 +1,10 @@
 import 'dart:convert';
-import 'package:flutter/material.dart';
+
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
+import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
+import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api_config.dart';
@@ -23,9 +26,6 @@ class LoginPage extends StatelessWidget {
   static const _lavender = Color(0xFFDEDDFF);
   static const _link = Color(0xFFFF9E9E);
 
-  static const _googleClientId =
-      '562542839875-hunanfi2hvbkuv0sa4t7c0lr14vch231.apps.googleusercontent.com';
-
   // Web Application client ID — dipakai sebagai serverClientId supaya
   // idToken di-generate dengan aud yang cocok untuk backend.
   static const _serverClientId =
@@ -45,6 +45,9 @@ class LoginPage extends StatelessWidget {
   /// Login Google OAuth asli.
   Future<void> _googleLogin(BuildContext context) async {
     final googleSignIn = GoogleSignIn(
+      // Di web, google_sign_in memakai `clientId` (Web OAuth client).
+      // Di Android, `serverClientId` yang menentukan aud idToken.
+      clientId: kIsWeb ? _serverClientId : null,
       serverClientId: _serverClientId,
       scopes: ['email', 'profile'],
     );
@@ -77,7 +80,8 @@ class LoginPage extends StatelessWidget {
 
       if (response.statusCode != 200) {
         final msg =
-            data['message'] as String? ?? 'Login gagal (${response.statusCode})';
+            data['message'] as String? ??
+            'Login gagal (${response.statusCode})';
         if (context.mounted) {
           ScaffoldMessenger.of(context)
               .showSnackBar(SnackBar(content: Text(msg)));
@@ -120,6 +124,7 @@ class LoginPage extends StatelessWidget {
         );
       }
     } catch (e) {
+      debugPrint('Google login gagal: $e');
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Gagal menghubungi server. Coba lagi.')),
@@ -128,26 +133,131 @@ class LoginPage extends StatelessWidget {
     }
   }
 
-  Future<void> _mockLogin(BuildContext context, String provider) async {
-    final isTunanetra = role == 'tunanetra';
-    final name = isTunanetra ? 'Ahmad Pratama' : 'Budi Santoso';
-    final email =
-        isTunanetra ? 'ahmad@$provider.com' : 'budisantoso@$provider.com';
+  /// Login Facebook memakai SDK resmi, lalu menukar access token ke backend.
+  Future<void> _loginWithFacebook(BuildContext context) async {
+    LoginResult result;
+    try {
+      result = await FacebookAuth.instance.login(
+        permissions: const ['email', 'public_profile'],
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Facebook tidak bisa dibuka: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
 
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('isLoggedIn', true);
-    await prefs.setString('user_role', role);
-    await prefs.setString('user_name', name);
-    await prefs.setString('user_email', email);
+    if (result.status == LoginStatus.cancelled) return;
+
+    if (result.status != LoginStatus.success || result.accessToken == null) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.message ?? 'Login Facebook gagal.'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+      return;
+    }
+
+    final accessToken = result.accessToken!;
+    final accessTokenValue = accessToken.tokenString;
+    // iOS memakai Limited Login (JWT OIDC) bila ATT tidak diberikan.
+    final tokenType = accessToken is LimitedToken ? 'limited' : 'classic';
 
     if (!context.mounted) return;
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(
-        builder: (_) => isTunanetra ? const VoicePage() : const HomeShell(),
-      ),
-      (_) => false,
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) =>
+          const Center(child: CircularProgressIndicator(color: Colors.white)),
     );
+
+    var loadingVisible = true;
+    void closeLoading() {
+      if (!loadingVisible || !context.mounted) return;
+      loadingVisible = false;
+      Navigator.of(context, rootNavigator: true).pop();
+    }
+
+    try {
+      final url = Uri.parse('${ApiConfig.baseUrl}/api/auth/facebook');
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'access_token': accessTokenValue,
+              'token_type': tokenType,
+              'role': role,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      if (!context.mounted) return;
+      closeLoading();
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode != 200 && response.statusCode != 201) {
+        final msg =
+            data['message'] as String? ??
+            'Login Facebook gagal (${response.statusCode})';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(msg), backgroundColor: Colors.redAccent),
+        );
+        return;
+      }
+
+      final payload = data['data'] as Map<String, dynamic>? ?? {};
+      final user = payload['user'] as Map<String, dynamic>? ?? {};
+      final sessionToken = payload['token'] as String? ?? '';
+      final userID = user['user_id'] as String? ?? '';
+      final userName = user['name'] as String? ?? 'Pengguna Facebook';
+      final userEmail = user['email'] as String? ?? '';
+      final userRole = user['role'] as String? ?? role;
+      final userPhone = user['phone_number'] as String? ?? '';
+      final userAddress = user['address'] as String? ?? '';
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isLoggedIn', true);
+      await prefs.setString('session_token', sessionToken);
+      await prefs.setString('user_id', userID);
+      await prefs.setString('user_role', userRole);
+      await prefs.setString('user_name', userName);
+      await prefs.setString('user_email', userEmail);
+      if (userPhone.isNotEmpty) {
+        await prefs.setString('user_phone', userPhone);
+      }
+      if (userAddress.isNotEmpty) {
+        await prefs.setString('user_address', userAddress);
+      }
+
+      if (!context.mounted) return;
+
+      final isTunanetra = userRole == 'tunanetra';
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (_) => isTunanetra ? const VoicePage() : const HomeShell(),
+        ),
+        (_) => false,
+      );
+    } catch (e) {
+      closeLoading();
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Koneksi ke backend gagal: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
+    }
   }
 
   @override
@@ -226,12 +336,16 @@ class LoginPage extends StatelessWidget {
                 _LoginButton(
                   text: 'Masuk dengan Email',
                   background: _pink,
-                  icon: const Icon(Icons.email,
-                      color: Color(0xFFD94545), size: 30),
+                  icon: const Icon(
+                    Icons.email,
+                    color: Color(0xFFD94545),
+                    size: 30,
+                  ),
                   onTap: () => Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (_) => EmailLoginPage(role: role)),
+                      builder: (_) => EmailLoginPage(role: role),
+                    ),
                   ),
                 ),
               ],
@@ -246,22 +360,20 @@ class LoginPage extends StatelessWidget {
                   height: 40,
                   fit: BoxFit.contain,
                 ),
-                onTap: () => _mockLogin(context, 'facebook'),
+                onTap: () => _loginWithFacebook(context),
               ),
 
               const SizedBox(height: 52),
 
               Semantics(
-                label:
-                    'Dengan melanjutkan, Anda menyatakan bahwa Anda menyetujui Persyaratan Layanan dan Kebijakan Privasi kami',
+                label: 'Dengan melanjutkan, Anda menyatakan bahwa Anda menyetujui Persyaratan Layanan dan Kebijakan Privasi kami',
                 child: RichText(
                   textAlign: TextAlign.center,
                   text: TextSpan(
                     style: footerStyle,
                     children: [
                       const TextSpan(
-                        text:
-                            'Dengan melanjutkan, Anda menyatakan bahwa bahwa Anda menyetujui ',
+                        text: 'Dengan melanjutkan, Anda menyatakan bahwa bahwa Anda menyetujui ',
                       ),
                       TextSpan(text: 'Persyaratan Layanan', style: linkStyle),
                       const TextSpan(text: ' dan '),
@@ -303,8 +415,7 @@ class _BackPill extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.arrow_back_ios_new,
-                    size: 12, color: LoginPage._ink),
+                Icon(Icons.arrow_back_ios_new, size: 12, color: LoginPage._ink),
                 SizedBox(width: 8),
                 Text(
                   'Kembali',
@@ -354,13 +465,10 @@ class _LoginButton extends StatelessWidget {
             height: 55,
             width: double.infinity,
             child: Padding(
-              padding: const EdgeInsets.only(left: 20, right: 12,),
+              padding: const EdgeInsets.only(left: 20, right: 12),
               child: Row(
                 children: [
-                  SizedBox(
-                    width: 28,
-                    child: Center(child: icon),
-                  ),
+                  SizedBox(width: 28, child: Center(child: icon)),
                   const SizedBox(width: 13),
                   Expanded(
                     child: Text(

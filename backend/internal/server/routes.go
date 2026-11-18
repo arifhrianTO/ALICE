@@ -100,6 +100,8 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 		db,
 		time.Duration(cfg.SessionTTLHours)*time.Hour,
 		cfg.GoogleClientID,
+		cfg.FacebookAppID,
+		cfg.FacebookAppSecret,
 	)
 
 	// Lapis 3: handler. Hanya tahu soal HTTP.
@@ -126,12 +128,14 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 		api.POST("/auth/register", authHandler.Register)
 		api.POST("/auth/login", authHandler.Login)
 		api.POST("/auth/google", authHandler.GoogleLogin)
+		api.POST("/auth/facebook", authHandler.FacebookLogin)
 
 		// --- M2: endpoint yang butuh token ---
 		// Middleware.Auth membaca header `Authorization: Bearer <token>`,
 		// memeriksa tabel session, lalu mengisi `user_id` ke context.
 		protected := api.Group("", middleware.Auth(db))
 		{
+			protected.POST("/auth/logout", authHandler.Logout)
 			protected.GET("/profile", profileHandler.Get)
 			protected.PUT("/profile", profileHandler.Update)
 		}
