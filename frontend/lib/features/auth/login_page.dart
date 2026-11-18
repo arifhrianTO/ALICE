@@ -1,6 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../core/api_config.dart';
 import '../../main.dart';
 import '../tunanetra/voice_page.dart';
 import 'email_login_page.dart';
@@ -19,6 +23,14 @@ class LoginPage extends StatelessWidget {
   static const _lavender = Color(0xFFDEDDFF);
   static const _link = Color(0xFFFF9E9E);
 
+  static const _googleClientId =
+      '562542839875-hunanfi2hvbkuv0sa4t7c0lr14vch231.apps.googleusercontent.com';
+
+  // Web Application client ID — dipakai sebagai serverClientId supaya
+  // idToken di-generate dengan aud yang cocok untuk backend.
+  static const _serverClientId =
+      '562542839875-2le8jkh5cglu0n5fggfhv7njc6polhs7.apps.googleusercontent.com';
+
   void _back(BuildContext context) {
     if (Navigator.canPop(context)) {
       Navigator.pop(context);
@@ -30,7 +42,92 @@ class LoginPage extends StatelessWidget {
     }
   }
 
-  /// Login simulasi untuk metode Google/Facebook (tanpa OAuth asli).
+  /// Login Google OAuth asli.
+  Future<void> _googleLogin(BuildContext context) async {
+    final googleSignIn = GoogleSignIn(
+      serverClientId: _serverClientId,
+      scopes: ['email', 'profile'],
+    );
+
+    try {
+      final account = await googleSignIn.signIn();
+      if (account == null) return; // user batal
+
+      final auth = await account.authentication;
+      final idToken = auth.idToken;
+      if (idToken == null) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Gagal mendapatkan token Google.')),
+          );
+        }
+        return;
+      }
+
+      final url = Uri.parse('${ApiConfig.baseUrl}/api/auth/google');
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'id_token': idToken, 'role': role}),
+          )
+          .timeout(const Duration(seconds: 15));
+
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (response.statusCode != 200) {
+        final msg =
+            data['message'] as String? ?? 'Login gagal (${response.statusCode})';
+        if (context.mounted) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(SnackBar(content: Text(msg)));
+        }
+        return;
+      }
+
+      final payload = data['data'] as Map<String, dynamic>? ?? {};
+      final user = payload['user'] as Map<String, dynamic>? ?? {};
+      final token = payload['token'] as String? ?? '';
+      final userID = user['user_id'] as String? ?? '';
+      final userName = user['name'] as String? ?? account.displayName ?? '';
+      final userEmail = user['email'] as String? ?? account.email;
+      final userRole = user['role'] as String? ?? role;
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isLoggedIn', true);
+      await prefs.setString('session_token', token);
+      await prefs.setString('user_id', userID);
+      await prefs.setString('user_role', userRole);
+      await prefs.setString('user_name', userName);
+      await prefs.setString('user_email', userEmail);
+
+      if (!context.mounted) return;
+
+      if (userRole == 'tunanetra') {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const VoicePage()),
+          (_) => false,
+        );
+      } else {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(
+            builder: (_) =>
+                HomeShell(name: userName, email: userEmail, role: userRole),
+          ),
+          (_) => false,
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Gagal menghubungi server. Coba lagi.')),
+        );
+      }
+    }
+  }
+
   Future<void> _mockLogin(BuildContext context, String provider) async {
     final isTunanetra = role == 'tunanetra';
     final name = isTunanetra ? 'Ahmad Pratama' : 'Budi Santoso';
@@ -121,7 +218,7 @@ class LoginPage extends StatelessWidget {
                   height: 40,
                   fit: BoxFit.contain,
                 ),
-                onTap: () => _mockLogin(context, 'google'),
+                onTap: () => _googleLogin(context),
               ),
 
               if (role != 'tunanetra') ...[
