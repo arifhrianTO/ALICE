@@ -75,3 +75,14 @@ type GoogleLoginRequest struct {
 	IDToken string `json:"id_token"`
 	Role    string `json:"role"`
 }
+
+// FacebookLoginRequest adalah isi badan permintaan POST /api/auth/facebook.
+//
+// TokenType membedakan token Graph API biasa ("classic") dari JWT OIDC
+// Limited Login iOS ("limited"). Kalau kosong, service mendeteksinya
+// otomatis dari bentuk token.
+type FacebookLoginRequest struct {
+	AccessToken string `json:"access_token"`
+	TokenType   string `json:"token_type"`
+	Role        string `json:"role"`
+}

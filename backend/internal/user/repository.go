@@ -99,7 +99,7 @@ func (r *postgresRepository) FindByEmail(ctx context.Context, email string) (*Us
 	// query yang tadinya sehat bisa tiba-tiba gagal.
 	const query = `
 		SELECT u.user_id, u.role, u.email, u.password, u.auth_provider, u.name, u.provider_id,
-		       COALESCE(c.phone_number, ''), COALESCE(c.address, '')
+		       c.phone_number, c.address
 		FROM "user" u
 		LEFT JOIN public.companion c ON u.user_id = c.user_id
 		WHERE u.email = $1`
@@ -108,6 +108,7 @@ func (r *postgresRepository) FindByEmail(ctx context.Context, email string) (*Us
 	// parameter kedua QueryRow, TIDAK ditempel ke dalam teks query.
 	// Inilah yang membuat serangan SQL injection tidak mungkin terjadi.
 	var u User
+	var phone, address *string
 	err := r.pool.QueryRow(ctx, query, email).Scan(
 		&u.UserID,
 		&u.Role,
@@ -116,8 +117,8 @@ func (r *postgresRepository) FindByEmail(ctx context.Context, email string) (*Us
 		&u.AuthProvider,
 		&u.Name,
 		&u.ProviderID,
-		&u.PhoneNumber,
-		&u.Address,
+		&phone,
+		&address,
 	)
 
 	// ErrNoRows artinya query berjalan lancar tapi tidak ada barisnya.
@@ -127,6 +128,23 @@ func (r *postgresRepository) FindByEmail(ctx context.Context, email string) (*Us
 	}
 	if err != nil {
 		return nil, fmt.Errorf("cari user berdasarkan email: %w", err)
+	}
+
+	// Data profil tersimpan sebagai ciphertext. Buka di sini supaya respons
+	// login tidak pernah mengirim nilai "v1:..." ke aplikasi.
+	if phone != nil {
+		plain, err := r.cipher.Decrypt(*phone, PhoneAAD(u.UserID))
+		if err != nil {
+			return nil, fmt.Errorf("dekripsi nomor telepon: %w", err)
+		}
+		u.PhoneNumber = plain
+	}
+	if address != nil {
+		plain, err := r.cipher.Decrypt(*address, AddressAAD(u.UserID))
+		if err != nil {
+			return nil, fmt.Errorf("dekripsi alamat: %w", err)
+		}
+		u.Address = plain
 	}
 
 	return &u, nil
@@ -146,12 +164,12 @@ func (r *postgresRepository) Create(ctx context.Context, in CreateInput) error {
 
 	return database.WithActor(ctx, r.pool, "anonymous", func(tx pgx.Tx) error {
 		const insertUser = `
-			INSERT INTO "user" (role, email, password, auth_provider, name)
-			VALUES ($1::user_role, $2, $3, $4::auth_provider_type, $5)
+			INSERT INTO "user" (role, email, password, auth_provider, name, provider_id)
+			VALUES ($1::user_role, $2, $3, $4::auth_provider_type, $5, $6)
 			RETURNING user_id`
 
 		err := tx.QueryRow(ctx, insertUser,
-			u.Role, u.Email, u.Password, u.AuthProvider, u.Name,
+			u.Role, u.Email, u.Password, u.AuthProvider, u.Name, u.ProviderID,
 		).Scan(&u.UserID)
 		if err != nil {
 			if isUniqueViolation(err) {

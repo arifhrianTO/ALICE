@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 /// Logo teks ALICE full (assets/icons/logo_full.png) — dipakai di splash.
 class AliceFullLogo extends StatelessWidget {

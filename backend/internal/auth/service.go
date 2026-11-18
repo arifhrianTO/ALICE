@@ -10,21 +10,29 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"alice-backend/internal/shared/audit"
 	"alice-backend/internal/shared/validation"
 	"alice-backend/internal/user"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -128,16 +136,26 @@ var emailPattern = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 // tidak ada anotasi — cukup parameter fungsi. Efeknya: saat menulis test,
 // cukup membuat tiruan dua repository itu, tanpa menyentuh database.
 type Service struct {
-	users          user.Repository
-	sessions       SessionRepository
-	pool           *pgxpool.Pool
-	ttl            time.Duration
-	googleClientID string
+	users             user.Repository
+	sessions          SessionRepository
+	pool              *pgxpool.Pool
+	ttl               time.Duration
+	googleClientID    string
+	facebookAppID     string
+	facebookAppSecret string
 }
 
 // NewService merakit Service beserta seluruh kebutuhannya.
-func NewService(users user.Repository, sessions SessionRepository, pool *pgxpool.Pool, ttl time.Duration, googleClientID string) *Service {
-	return &Service{users: users, sessions: sessions, pool: pool, ttl: ttl, googleClientID: googleClientID}
+func NewService(users user.Repository, sessions SessionRepository, pool *pgxpool.Pool, ttl time.Duration, googleClientID string, facebookAppID string, facebookAppSecret string) *Service {
+	return &Service{
+		users:             users,
+		sessions:          sessions,
+		pool:              pool,
+		ttl:               ttl,
+		googleClientID:    googleClientID,
+		facebookAppID:     facebookAppID,
+		facebookAppSecret: facebookAppSecret,
+	}
 }
 
 // RegisterInput adalah data yang dibutuhkan untuk mendaftar.
@@ -241,6 +259,15 @@ func (s *Service) Register(ctx context.Context, in RegisterInput) (*RegisterResu
 		Token:     token,
 		ExpiredAt: session.ExpiredAt,
 	}, nil
+}
+
+// Logout mencabut token sesi sehingga tidak bisa dipakai lagi.
+func (s *Service) Logout(ctx context.Context, token string) error {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return invalid("token sesi wajib diisi")
+	}
+	return s.sessions.DeleteByToken(ctx, token)
 }
 
 // LoginInput data kebutuhan masuk akun.
@@ -410,21 +437,12 @@ type googleTokenInfo struct {
 
 // LoginWithGoogle memverifikasi ID token Google dan masuk (atau mendaftar) pengguna.
 func (s *Service) LoginWithGoogle(ctx context.Context, idToken string, role string) (*LoginResult, error) {
-	// 1. Verifikasi ID token ke Google.
-	resp, err := http.Get("https://oauth2.googleapis.com/tokeninfo?id_token=" + idToken)
-	if err != nil {
-		return nil, fmt.Errorf("verifikasi token Google: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("baca respons Google: %w", err)
-	}
+	// 1. Verifikasi ID token ke Google (dengan timeout, lewat oauthHTTPClient).
+	endpoint := "https://oauth2.googleapis.com/tokeninfo?id_token=" + url.QueryEscape(idToken)
 
 	var info googleTokenInfo
-	if err := json.Unmarshal(body, &info); err != nil {
-		return nil, fmt.Errorf("urai respons Google: %w", err)
+	if err := oauthGetJSON(ctx, endpoint, &info); err != nil {
+		return nil, fmt.Errorf("verifikasi token Google: %w", err)
 	}
 
 	if info.Error != "" {
@@ -439,7 +457,19 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string, role stri
 		return nil, invalid("email Google belum diverifikasi")
 	}
 
+	if strings.TrimSpace(info.Sub) == "" {
+		return nil, invalid("token Google tidak berisi ID pengguna")
+	}
+
 	email := strings.ToLower(strings.TrimSpace(info.Email))
+	if email == "" {
+		return nil, invalid("token Google tidak berisi email")
+	}
+
+	normalizedRole, err := normalizeOAuthRole(role)
+	if err != nil {
+		return nil, err
+	}
 
 	// 3. Cek apakah user sudah ada.
 	u, err := s.users.FindByEmail(ctx, email)
@@ -452,6 +482,10 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string, role stri
 		if u.AuthProvider != user.AuthProviderGoogle {
 			return nil, ErrProviderMismatch
 		}
+		// Pastikan akun yang ditemukan memang milik provider ID ini.
+		if u.ProviderID != nil && *u.ProviderID != "" && *u.ProviderID != info.Sub {
+			return nil, ErrProviderMismatch
+		}
 	} else {
 		// User belum ada → buat baru.
 		sub := info.Sub
@@ -459,7 +493,7 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string, role stri
 			Name:         info.Name,
 			Email:        &email,
 			Password:     nil,
-			Role:         strings.TrimSpace(role),
+			Role:         normalizedRole,
 			AuthProvider: user.AuthProviderGoogle,
 			ProviderID:   &sub,
 		}
@@ -489,6 +523,340 @@ func (s *Service) LoginWithGoogle(ctx context.Context, idToken string, role stri
 	return &LoginResult{
 		User:      u,
 		Token:     token,
+		ExpiredAt: session.ExpiredAt,
+	}, nil
+}
+
+// facebookUserInfo adalah respons dari endpoint /me Graph API Facebook.
+type facebookUserInfo struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	Error *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    int    `json:"code"`
+	} `json:"error"`
+}
+
+const (
+	facebookGraphBaseURL = "https://graph.facebook.com/v19.0"
+	facebookIssuer       = "https://www.facebook.com"
+	facebookJWKSURL      = "https://www.facebook.com/.well-known/oauth/openid/jwks/"
+)
+
+// oauthHTTPClient dipakai untuk panggilan verifikasi OAuth. Timeout wajib
+// ada supaya login tidak menggantung kalau penyedia OAuth tidak menjawab.
+var oauthHTTPClient = &http.Client{Timeout: 10 * time.Second}
+
+// JWKS Facebook di-cache sebentar agar tidak diunduh pada setiap login.
+var (
+	facebookJWKSMu     sync.Mutex
+	facebookJWKSCache  = map[string]*rsa.PublicKey{}
+	facebookJWKSExpiry time.Time
+)
+
+// facebookDebugToken adalah respons endpoint /debug_token Graph API.
+type facebookDebugToken struct {
+	Data struct {
+		AppID   string `json:"app_id"`
+		IsValid bool   `json:"is_valid"`
+		UserID  string `json:"user_id"`
+	} `json:"data"`
+	Error *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    int    `json:"code"`
+	} `json:"error"`
+}
+
+type facebookJWKSResponse struct {
+	Keys []struct {
+		Kty string `json:"kty"`
+		Kid string `json:"kid"`
+		Use string `json:"use"`
+		Alg string `json:"alg"`
+		N   string `json:"n"`
+		E   string `json:"e"`
+	} `json:"keys"`
+}
+
+// normalizeOAuthRole memastikan peran dari klien hanya berisi nilai yang
+// dikenal database. Kosong berarti pendamping (perilaku lama).
+func normalizeOAuthRole(role string) (string, error) {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return user.RolePendamping, nil
+	}
+	if role != user.RolePendamping && role != user.RoleTunanetra {
+		return "", invalid(`peran harus "pendamping" atau "tunanetra"`)
+	}
+	return role, nil
+}
+
+// oauthGetJSON melakukan GET lalu mengurai JSON ke out.
+func oauthGetJSON(ctx context.Context, endpoint string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := oauthHTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(body, out)
+}
+
+// appSecretProof mengikat access token ke App Secret, sehingga token yang
+// bocor tidak bisa dipakai tanpa diketahui aplikasi pemiliknya.
+func appSecretProof(accessToken, appSecret string) string {
+	mac := hmac.New(sha256.New, []byte(appSecret))
+	_, _ = mac.Write([]byte(accessToken))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// verifyFacebookAccessToken memverifikasi access token Graph API klasik:
+// token harus valid dan benar-benar milik App ID kita.
+func (s *Service) verifyFacebookAccessToken(ctx context.Context, accessToken string) (*facebookUserInfo, error) {
+	appAccessToken := s.facebookAppID + "|" + s.facebookAppSecret
+	debugURL := fmt.Sprintf(
+		"%s/debug_token?input_token=%s&access_token=%s",
+		facebookGraphBaseURL,
+		url.QueryEscape(accessToken),
+		url.QueryEscape(appAccessToken),
+	)
+
+	var debug facebookDebugToken
+	if err := oauthGetJSON(ctx, debugURL, &debug); err != nil {
+		return nil, fmt.Errorf("verifikasi token Facebook: %w", err)
+	}
+	if debug.Error != nil {
+		return nil, invalid("token Facebook tidak valid")
+	}
+	if !debug.Data.IsValid || debug.Data.AppID != s.facebookAppID {
+		return nil, invalid("token Facebook tidak valid untuk aplikasi ini")
+	}
+
+	meURL := fmt.Sprintf(
+		"%s/me?fields=id,name,email&access_token=%s&appsecret_proof=%s",
+		facebookGraphBaseURL,
+		url.QueryEscape(accessToken),
+		appSecretProof(accessToken, s.facebookAppSecret),
+	)
+
+	var info facebookUserInfo
+	if err := oauthGetJSON(ctx, meURL, &info); err != nil {
+		return nil, fmt.Errorf("ambil data Facebook: %w", err)
+	}
+	if info.Error != nil {
+		return nil, invalid("token Facebook tidak valid")
+	}
+	if info.ID == "" {
+		return nil, invalid("token Facebook tidak mengembalikan ID pengguna")
+	}
+	// /debug_token dan /me harus menunjuk pengguna yang sama.
+	if debug.Data.UserID != "" && debug.Data.UserID != info.ID {
+		return nil, invalid("token Facebook tidak konsisten")
+	}
+	return &info, nil
+}
+
+// facebookPublicKey mengambil public key dari JWKS Facebook berdasarkan kid.
+func facebookPublicKey(ctx context.Context, kid string) (*rsa.PublicKey, error) {
+	facebookJWKSMu.Lock()
+	if time.Now().Before(facebookJWKSExpiry) {
+		if key, ok := facebookJWKSCache[kid]; ok {
+			facebookJWKSMu.Unlock()
+			return key, nil
+		}
+	}
+	facebookJWKSMu.Unlock()
+
+	var jwks facebookJWKSResponse
+	if err := oauthGetJSON(ctx, facebookJWKSURL, &jwks); err != nil {
+		return nil, fmt.Errorf("ambil JWKS Facebook: %w", err)
+	}
+
+	keys := make(map[string]*rsa.PublicKey, len(jwks.Keys))
+	for _, k := range jwks.Keys {
+		if k.Kty != "RSA" || (k.Alg != "" && k.Alg != "RS256") {
+			continue
+		}
+		nBytes, err := base64.RawURLEncoding.DecodeString(k.N)
+		if err != nil {
+			continue
+		}
+		eBytes, err := base64.RawURLEncoding.DecodeString(k.E)
+		if err != nil {
+			continue
+		}
+		exponent := new(big.Int).SetBytes(eBytes)
+		if !exponent.IsInt64() {
+			continue
+		}
+		keys[k.Kid] = &rsa.PublicKey{
+			N: new(big.Int).SetBytes(nBytes),
+			E: int(exponent.Int64()),
+		}
+	}
+
+	facebookJWKSMu.Lock()
+	facebookJWKSCache = keys
+	facebookJWKSExpiry = time.Now().Add(time.Hour)
+	facebookJWKSMu.Unlock()
+
+	key, ok := keys[kid]
+	if !ok {
+		return nil, invalid("token Facebook tidak valid")
+	}
+	return key, nil
+}
+
+// verifyFacebookLimitedToken memverifikasi JWT OIDC dari iOS Limited Login.
+func (s *Service) verifyFacebookLimitedToken(ctx context.Context, raw string) (*facebookUserInfo, error) {
+	parsed, err := jwt.Parse(
+		raw,
+		func(t *jwt.Token) (any, error) {
+			kid, _ := t.Header["kid"].(string)
+			if kid == "" {
+				return nil, errors.New("kid tidak ada")
+			}
+			return facebookPublicKey(ctx, kid)
+		},
+		jwt.WithValidMethods([]string{"RS256"}),
+		jwt.WithIssuer(facebookIssuer),
+		jwt.WithAudience(s.facebookAppID),
+		jwt.WithExpirationRequired(),
+		jwt.WithLeeway(60*time.Second),
+	)
+	if err != nil || !parsed.Valid {
+		return nil, invalid("token Facebook tidak valid")
+	}
+
+	claims, ok := parsed.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, invalid("token Facebook tidak valid")
+	}
+
+	id, _ := claims["sub"].(string)
+	if id == "" {
+		return nil, invalid("token Facebook tidak berisi ID pengguna")
+	}
+	name, _ := claims["name"].(string)
+	email, _ := claims["email"].(string)
+
+	return &facebookUserInfo{ID: id, Name: name, Email: email}, nil
+}
+
+// LoginWithFacebook memverifikasi token Facebook (classic maupun Limited
+// Login iOS) lalu masuk atau mendaftarkan pengguna.
+func (s *Service) LoginWithFacebook(ctx context.Context, accessToken, tokenType, role string) (*LoginResult, error) {
+	token := strings.TrimSpace(accessToken)
+	if token == "" {
+		return nil, invalid("access token Facebook wajib diisi")
+	}
+	if s.facebookAppID == "" || s.facebookAppSecret == "" {
+		return nil, fmt.Errorf("konfigurasi Facebook belum lengkap: FACEBOOK_APP_ID/FACEBOOK_APP_SECRET")
+	}
+
+	normalizedRole, err := normalizeOAuthRole(role)
+	if err != nil {
+		return nil, err
+	}
+
+	tokenType = strings.ToLower(strings.TrimSpace(tokenType))
+	if tokenType == "" {
+		if strings.Count(token, ".") == 2 {
+			tokenType = "limited"
+		} else {
+			tokenType = "classic"
+		}
+	}
+
+	var info *facebookUserInfo
+	switch tokenType {
+	case "limited":
+		info, err = s.verifyFacebookLimitedToken(ctx, token)
+	case "classic":
+		info, err = s.verifyFacebookAccessToken(ctx, token)
+	default:
+		return nil, invalid(`token_type Facebook harus "classic" atau "limited"`)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Ambil nama dan email. Jika akun FB tidak menyediakan email (misal
+	// daftar via nomor HP), gunakan email fallback deterministik dari ID.
+	name := strings.TrimSpace(info.Name)
+	if name == "" {
+		name = "Pengguna Facebook"
+	}
+
+	email := strings.ToLower(strings.TrimSpace(info.Email))
+	if email == "" {
+		email = fmt.Sprintf("fb_%s@facebook.alice.local", info.ID)
+	}
+
+	// 3. Cek apakah user sudah ada di database.
+	u, err := s.users.FindByEmail(ctx, email)
+	if err != nil {
+		return nil, err
+	}
+
+	if u != nil {
+		// User ada tapi bukan dari Facebook → tolak untuk menjaga keamanan.
+		if u.AuthProvider != user.AuthProviderFacebook {
+			return nil, ErrProviderMismatch
+		}
+		// Pastikan akun yang ditemukan memang milik provider ID ini.
+		if u.ProviderID != nil && *u.ProviderID != "" && *u.ProviderID != info.ID {
+			return nil, ErrProviderMismatch
+		}
+	} else {
+		// User belum ada → buat akun baru.
+		fbID := info.ID
+		u = &user.User{
+			Name:         name,
+			Email:        &email,
+			Password:     nil,
+			Role:         normalizedRole,
+			AuthProvider: user.AuthProviderFacebook,
+			ProviderID:   &fbID,
+		}
+		if err := s.users.Create(ctx, user.CreateInput{User: u}); err != nil {
+			if errors.Is(err, user.ErrEmailTaken) {
+				return nil, ErrEmailTaken
+			}
+			return nil, err
+		}
+	}
+
+	// 4. Buat session token.
+	sessionToken, err := newToken()
+	if err != nil {
+		return nil, err
+	}
+
+	session := &Session{
+		UserID:       u.UserID,
+		SessionToken: sessionToken,
+		ExpiredAt:    time.Now().Add(s.ttl),
+	}
+	if err := s.sessions.Create(ctx, session); err != nil {
+		return nil, err
+	}
+
+	return &LoginResult{
+		User:      u,
+		Token:     sessionToken,
 		ExpiredAt: session.ExpiredAt,
 	}, nil
 }

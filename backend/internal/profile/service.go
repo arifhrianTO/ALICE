@@ -84,11 +84,15 @@ func (s *Service) Update(ctx context.Context, userID string, in UpdateInput) (*P
 
 	var phoneNumber, address *string
 	if current.Role == user.RolePendamping {
-		phone, err := validation.NormalizePhone(in.PhoneNumber)
-		if err != nil {
-			return nil, invalid(err.Error())
+		// Nomor telepon boleh kosong di sini: akun OAuth (Google/Facebook)
+		// belum tentu punya nomor. Kalau diisi, tetap divalidasi.
+		if strings.TrimSpace(in.PhoneNumber) != "" {
+			phone, err := validation.NormalizePhone(in.PhoneNumber)
+			if err != nil {
+				return nil, invalid(err.Error())
+			}
+			phoneNumber = &phone
 		}
-		phoneNumber = &phone
 
 		addr, err := validation.NormalizeAddress(in.Address)
 		if err != nil {
