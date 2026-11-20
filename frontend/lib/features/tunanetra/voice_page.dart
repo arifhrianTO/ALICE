@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -22,12 +25,25 @@ class VoicePage extends StatefulWidget {
 class _VoicePageState extends State<VoicePage> {
   final stt.SpeechToText _speech = stt.SpeechToText();
   final ScrollController _scrollController = ScrollController();
+  final List<_Conversation> _conversations = [];
+
   bool listening = false;
   bool processing = false;
   bool _speechAvailable = false;
   bool _greeted = false;
+  bool _disposed = false;
+  bool _wakeActive = false;
+  bool _listeningWake = false;
+  bool _startingListen = false;
   bool _awaitingLogoutConfirmation = false;
-  final List<_Conversation> _conversations = [];
+
+  Timer? _wakeRestartTimer;
+  Timer? _hapticTimer;
+  VoidCallback? _afterSpeak;
+
+  static final RegExp _wakePattern = RegExp(r'\b(hi|hai|hei)\s+alice\b');
+  static final RegExp _nonWord = RegExp(r'[^a-z0-9\s]');
+  static final RegExp _spaces = RegExp(r'\s+');
 
   static const _logoutWords = [
     'keluar',
@@ -50,42 +66,108 @@ class _VoicePageState extends State<VoicePage> {
   @override
   void initState() {
     super.initState();
+    TtsService.instance.speaking.addListener(_onSpeakingChanged);
     _initSpeech();
     WidgetsBinding.instance.addPostFrameCallback((_) => _greet());
   }
 
   Future<void> _greet() async {
-    if (_greeted) return;
+    if (_greeted || !mounted) return;
     _greeted = true;
-    if (!mounted) return;
-    if (MediaQuery.of(context).accessibleNavigation) return;
-    await TtsService.instance.speak(
-      'Halo, selamat datang di ALICE. Tekan tombol mikrofon lalu ucapkan pertanyaan Anda. '
-      'Anda bisa bertanya tentang waktu, tanggal, atau cuaca. Ucapkan keluar untuk mengakhiri sesi.',
+    if (MediaQuery.of(context).accessibleNavigation) {
+      _resumeWake();
+      return;
+    }
+    await _speak(
+      'Halo, selamat datang di ALICE. Ucapkan hai Alice kapan saja untuk memanggil saya. '
+      'Anda bisa bertanya tentang waktu, tanggal, cuaca, atau lokasi Anda. '
+      'Ucapkan keluar untuk mengakhiri sesi.',
+      then: _resumeWake,
     );
   }
 
   Future<void> _initSpeech() async {
     try {
       final available = await _speech.initialize(
-        onStatus: (status) {
-          if (status == 'done' || status == 'notListening') {
-            if (mounted) setState(() => listening = false);
-          }
-        },
+        onStatus: _onSpeechStatus,
         onError: (error) {
-          if (mounted) {
-            setState(() => listening = false);
-            _showError(
-              'Mikrofon tidak dapat digunakan. Periksa izin mikrofon.',
-            );
+          debugPrint('Speech error: ${error.errorMsg}');
+          _listeningWake = false;
+          if (mounted && listening) setState(() => listening = false);
+          if (_wakeActive &&
+              !TtsService.instance.isSpeaking &&
+              !processing) {
+            _scheduleWakeRestart();
           }
         },
       );
-      if (mounted) setState(() => _speechAvailable = available);
+      if (!mounted) return;
+      setState(() => _speechAvailable = available);
+      if (available && _wakeActive) _scheduleWakeRestart();
     } catch (_) {
       if (mounted) setState(() => _speechAvailable = false);
     }
+  }
+
+  void _onSpeechStatus(String status) {
+    if (_disposed) return;
+    if (status != 'done' && status != 'notListening') return;
+    final wasCommandListening = !_listeningWake && listening;
+    _listeningWake = false;
+    if (mounted && wasCommandListening) setState(() => listening = false);
+    if (TtsService.instance.isSpeaking || processing) return;
+    if (_awaitingLogoutConfirmation) {
+      _awaitingLogoutConfirmation = false;
+      _resumeWake();
+      return;
+    }
+    if (_wakeActive) _scheduleWakeRestart();
+  }
+
+  void _onSpeakingChanged() {
+    if (_disposed) return;
+    if (TtsService.instance.isSpeaking) {
+      _stopHaptics();
+      _startHaptics();
+      _listeningWake = false;
+      _speech.cancel();
+      if (mounted && listening) setState(() => listening = false);
+      return;
+    }
+
+    _stopHaptics();
+    _completionHaptics();
+    final action = _afterSpeak;
+    _afterSpeak = null;
+    if (action != null) {
+      action();
+    } else if (_wakeActive) {
+      _scheduleWakeRestart();
+    }
+  }
+
+  void _startHaptics() {
+    _hapticTimer?.cancel();
+    HapticFeedback.mediumImpact();
+    _hapticTimer = Timer.periodic(const Duration(milliseconds: 700), (_) {
+      if (TtsService.instance.isSpeaking) HapticFeedback.selectionClick();
+    });
+  }
+
+  void _stopHaptics() {
+    _hapticTimer?.cancel();
+    _hapticTimer = null;
+  }
+
+  Future<void> _completionHaptics() async {
+    await HapticFeedback.lightImpact();
+    await Future<void>.delayed(const Duration(milliseconds: 120));
+    await HapticFeedback.lightImpact();
+  }
+
+  Future<void> _speak(String text, {VoidCallback? then}) async {
+    _afterSpeak = then;
+    await TtsService.instance.speak(text);
   }
 
   Future<String?> _pickLocale() async {
@@ -99,23 +181,115 @@ class _VoicePageState extends State<VoicePage> {
     return null;
   }
 
-  Future<void> _startListening() async {
-    final locale = await _pickLocale();
-    await _speech.listen(
-      listenOptions: stt.SpeechListenOptions(
-        localeId: locale,
-        listenFor: const Duration(seconds: 30),
-      ),
-      onResult: (result) {
-        if (result.finalResult) _handleFinal(result.recognizedWords);
-      },
-    );
+  Future<void> _beginListen({required bool wake}) async {
+    if (!_speechAvailable ||
+        _startingListen ||
+        _disposed ||
+        TtsService.instance.isSpeaking) {
+      return;
+    }
+    _startingListen = true;
+    try {
+      await _speech.cancel();
+      final locale = await _pickLocale();
+      _listeningWake = wake;
+      if (!wake && mounted) setState(() => listening = true);
+      await _speech.listen(
+        listenOptions: stt.SpeechListenOptions(
+          localeId: locale,
+          listenFor: wake
+              ? const Duration(minutes: 2)
+              : const Duration(seconds: 20),
+          pauseFor: const Duration(seconds: 3),
+          partialResults: wake,
+          cancelOnError: false,
+        ),
+        onResult: (result) {
+          if (_disposed) return;
+          if (wake) {
+            _maybeWake(result.recognizedWords);
+          } else if (result.finalResult) {
+            _handleFinal(result.recognizedWords);
+          }
+        },
+      );
+    } catch (error) {
+      debugPrint('Speech listen error: $error');
+      _listeningWake = false;
+      if (wake) _scheduleWakeRestart();
+    } finally {
+      _startingListen = false;
+    }
+  }
+
+  void _scheduleWakeRestart() {
+    if (_disposed ||
+        !_wakeActive ||
+        listening ||
+        TtsService.instance.isSpeaking) {
+      return;
+    }
+    _wakeRestartTimer?.cancel();
+    _wakeRestartTimer = Timer(const Duration(milliseconds: 700), () {
+      if (_disposed ||
+          !_wakeActive ||
+          listening ||
+          TtsService.instance.isSpeaking ||
+          _startingListen) {
+        return;
+      }
+      _beginListen(wake: true);
+    });
+  }
+
+  void _resumeWake() {
+    if (_disposed) return;
+    _wakeActive = true;
+    _listeningWake = false;
+    _scheduleWakeRestart();
+  }
+
+  void _listenForCommand() {
+    if (_disposed) return;
+    _wakeActive = true;
+    _beginListen(wake: false);
+  }
+
+  void _maybeWake(String text) {
+    if (!_wakeActive || _disposed) return;
+    final normalized = text
+        .toLowerCase()
+        .replaceAll(_nonWord, ' ')
+        .replaceAll(_spaces, ' ')
+        .trim();
+    final match = _wakePattern.firstMatch(normalized);
+    if (match == null) return;
+
+    _wakeActive = false;
+    _listeningWake = false;
+    _speech.cancel();
+    HapticFeedback.heavyImpact();
+
+    final command = normalized.substring(match.end).trim();
+    if (command.isNotEmpty) {
+      _handleFinal(command);
+      return;
+    }
+    if (mounted) setState(() => listening = true);
+    _speak('Ya, ada yang bisa saya bantu?', then: _listenForCommand);
   }
 
   Future<void> _toggle() async {
+    if (TtsService.instance.isSpeaking) {
+      HapticFeedback.lightImpact();
+      await TtsService.instance.stop();
+      return;
+    }
     if (listening) {
+      _wakeActive = true;
       await _speech.stop();
       if (mounted) setState(() => listening = false);
+      _scheduleWakeRestart();
       return;
     }
     if (!_speechAvailable) {
@@ -125,13 +299,22 @@ class _VoicePageState extends State<VoicePage> {
         return;
       }
     }
-    setState(() => listening = true);
-    await _startListening();
+    _wakeActive = true;
+    _wakeRestartTimer?.cancel();
+    await _speech.cancel();
+    HapticFeedback.mediumImpact();
+    await _beginListen(wake: false);
   }
 
   Future<void> _handleFinal(String raw) async {
     final text = raw.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _disposed) return;
+
+    _wakeActive = false;
+    _listeningWake = false;
+    _wakeRestartTimer?.cancel();
+    if (mounted) setState(() => listening = false);
+    await _speech.cancel();
 
     if (_awaitingLogoutConfirmation) {
       await _handleLogoutConfirmation(text);
@@ -162,15 +345,12 @@ class _VoicePageState extends State<VoicePage> {
       );
     });
     await _speech.cancel();
-    await TtsService.instance.speak(prompt);
 
     if (!_speechAvailable) {
       await _handleLogoutConfirmation('ya');
       return;
     }
-    if (!mounted) return;
-    setState(() => listening = true);
-    await _startListening();
+    await _speak(prompt, then: _listenForCommand);
   }
 
   Future<void> _handleLogoutConfirmation(String text) async {
@@ -187,6 +367,7 @@ class _VoicePageState extends State<VoicePage> {
       return;
     }
 
+    _wakeActive = true;
     final message = saysNo
         ? 'Baik, saya batalkan. Ada lagi yang bisa saya bantu?'
         : 'Saya tidak yakin, jadi saya batalkan agar aman. Ada lagi yang bisa saya bantu?';
@@ -195,10 +376,12 @@ class _VoicePageState extends State<VoicePage> {
         _conversations[0] = _conversations.first.copyWith(answer: message);
       });
     }
-    await TtsService.instance.speak(message);
+    await _speak(message, then: _resumeWake);
   }
 
   Future<void> _performLogout() async {
+    _wakeActive = false;
+    _wakeRestartTimer?.cancel();
     await _speech.cancel();
     await TtsService.instance.speak('Baik, sampai jumpa.');
     await TtsService.instance.stop();
@@ -243,39 +426,39 @@ class _VoicePageState extends State<VoicePage> {
   Future<void> _submitQuestion(String question) async {
     final text = question.trim();
     if (text.isEmpty || processing) return;
+
+    _wakeActive = false;
+    _wakeRestartTimer?.cancel();
     setState(() {
       listening = false;
       processing = true;
       _conversations.insert(0, _Conversation(question: text));
     });
+
+    String answer;
     try {
       final reply = await AssistantService.ask(text);
-      if (!mounted) return;
-      setState(() {
-        _conversations[0] = _conversations.first.copyWith(answer: reply.answer);
-      });
-      await TtsService.instance.speak(reply.answer);
+      answer = reply.answer;
     } catch (error) {
-      if (!mounted) return;
-      final answer = _friendlyError(error);
+      answer = _friendlyError(error);
+    }
+
+    if (mounted) {
       setState(() {
         _conversations[0] = _conversations.first.copyWith(answer: answer);
+        processing = false;
       });
-      await TtsService.instance.speak(answer);
-    } finally {
-      if (mounted) setState(() => processing = false);
-      if (mounted) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (_scrollController.hasClients) {
-            _scrollController.animateTo(
-              0,
-              duration: const Duration(milliseconds: 250),
-              curve: Curves.easeOut,
-            );
-          }
-        });
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            0,
+            duration: const Duration(milliseconds: 250),
+            curve: Curves.easeOut,
+          );
+        }
+      });
     }
+    await _speak(answer, then: _resumeWake);
   }
 
   String _friendlyError(Object error) {
@@ -297,6 +480,10 @@ class _VoicePageState extends State<VoicePage> {
 
   @override
   void dispose() {
+    _disposed = true;
+    TtsService.instance.speaking.removeListener(_onSpeakingChanged);
+    _wakeRestartTimer?.cancel();
+    _hapticTimer?.cancel();
     _speech.cancel();
     _scrollController.dispose();
     TtsService.instance.stop();
@@ -332,10 +519,14 @@ class _VoicePageState extends State<VoicePage> {
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
-                child: MicButton(
-                  listening: listening,
-                  onTap: _toggle,
-                  diameter: constraints.maxWidth.clamp(0.0, 360.0),
+                child: ValueListenableBuilder<bool>(
+                  valueListenable: TtsService.instance.speaking,
+                  builder: (context, speaking, _) => MicButton(
+                    listening: listening,
+                    speaking: speaking,
+                    onTap: _toggle,
+                    diameter: constraints.maxWidth.clamp(0.0, 360.0),
+                  ),
                 ),
               ),
               const SizedBox(height: 18),
