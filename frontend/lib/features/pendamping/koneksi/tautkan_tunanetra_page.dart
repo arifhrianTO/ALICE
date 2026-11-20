@@ -3,6 +3,7 @@ import 'package:material_ui/material_ui.dart';
 import '../../../core/colors.dart';
 import 'tautkan_tunanetra_data.dart';
 import 'widgets/tautkan_tunanetra_dialogs.dart';
+import 'package:alice_app/core/tunanetra_api.dart';
 
 // =====================================================================
 //  HALAMAN TAUTKAN TUNANETRA
@@ -26,6 +27,38 @@ class _TautkanTunanetraPageState extends State<TautkanTunanetraPage> {
   /// Arah animasi pindah halaman: true = maju (ke kanan), false = mundur.
   bool _forward = true;
 
+  /// Data asli dari backend.
+  List<TunanetraItem> _all = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final list = await searchTunanetra('');
+      if (!mounted) return;
+      setState(() {
+        _all = list;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString().replaceFirst('Exception: ', '');
+        _loading = false;
+      });
+    }
+  }
+
   void _goTo(int p) {
     if (p == _page) return;
     setState(() {
@@ -41,10 +74,10 @@ class _TautkanTunanetraPageState extends State<TautkanTunanetraPage> {
   }
 
   /// Daftar yang sudah difilter sesuai kata kunci pencarian.
-  List<Tunanetra> get _filtered {
+  List<TunanetraItem> get _filtered {
     final q = _query.trim().toLowerCase();
-    if (q.isEmpty) return dummyTunanetra;
-    return dummyTunanetra
+    if (q.isEmpty) return _all;
+    return _all
         .where((t) =>
             t.name.toLowerCase().contains(q) ||
             t.email.toLowerCase().contains(q))
@@ -56,8 +89,11 @@ class _TautkanTunanetraPageState extends State<TautkanTunanetraPage> {
     return n == 0 ? 1 : (n / _kPerPage).ceil();
   }
 
-  Future<void> _onTautkan(Tunanetra person) async {
-    final ok = await showTautkanDialog(context, person);
+  Future<void> _onTautkan(TunanetraItem person) async {
+    final ok = await showTautkanDialog(
+      context,
+      Tunanetra(name: person.name, email: person.email),
+    );
     if (!ok || !mounted) return;
     showTautkanSnack(context, '${person.name} berhasil ditautkan');
   }
@@ -68,6 +104,48 @@ class _TautkanTunanetraPageState extends State<TautkanTunanetraPage> {
     final totalPages = _totalPages;
     final page = _page.clamp(0, totalPages - 1);
     final pageItems = items.skip(page * _kPerPage).take(_kPerPage).toList();
+
+    // Isi daftar: loading / error / kosong / berisi.
+    final Widget content;
+    if (_loading) {
+      content = const SizedBox(
+        key: ValueKey('loading'),
+        height: 200,
+        width: double.infinity,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    } else if (_error != null) {
+      content = SizedBox(
+        key: const ValueKey('error'),
+        height: 200,
+        width: double.infinity,
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Text(_error!, textAlign: TextAlign.center),
+          ),
+        ),
+      );
+    } else if (pageItems.isEmpty) {
+      content = const _EmptyState(key: ValueKey('empty'));
+    } else {
+      content = Padding(
+        key: ValueKey('page-$page-$_query'),
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (int i = 0; i < pageItems.length; i++) ...[
+              if (i > 0) const SizedBox(height: 10),
+              _TunanetraCard(
+                person: pageItems[i],
+                onTautkan: () => _onTautkan(pageItems[i]),
+              ),
+            ],
+          ],
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: kBg,
@@ -89,8 +167,6 @@ class _TautkanTunanetraPageState extends State<TautkanTunanetraPage> {
                 duration: const Duration(milliseconds: 340),
                 switchInCurve: Curves.easeOutCubic,
                 switchOutCurve: Curves.easeInCubic,
-                // Halaman baru meluncur masuk searah (kiri/kanan) sambil
-                // halaman lama meluncur keluar, plus fade halus.
                 transitionBuilder: (child, anim) {
                   final begin = Offset(_forward ? 1.0 : -1.0, 0);
                   final slide = Tween<Offset>(begin: begin, end: Offset.zero)
@@ -106,24 +182,7 @@ class _TautkanTunanetraPageState extends State<TautkanTunanetraPage> {
                   alignment: Alignment.topCenter,
                   children: [...previous, ?current],
                 ),
-                child: pageItems.isEmpty
-                    ? const _EmptyState(key: ValueKey('empty'))
-                    : Padding(
-                        key: ValueKey('page-$page-$_query'),
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            for (int i = 0; i < pageItems.length; i++) ...[
-                              if (i > 0) const SizedBox(height: 10),
-                              _TunanetraCard(
-                                person: pageItems[i],
-                                onTautkan: () => _onTautkan(pageItems[i]),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
+                child: content,
               ),
               const SizedBox(height: 16),
               _PaginationBar(
@@ -247,7 +306,7 @@ class _SearchBar extends StatelessWidget {
 //  KARTU TUNANETRA
 // =====================================================================
 class _TunanetraCard extends StatelessWidget {
-  final Tunanetra person;
+    final TunanetraItem person;
   final VoidCallback onTautkan;
 
   const _TunanetraCard({required this.person, required this.onTautkan});
