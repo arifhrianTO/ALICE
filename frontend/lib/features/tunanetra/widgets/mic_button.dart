@@ -2,23 +2,30 @@ import 'package:material_ui/material_ui.dart';
 
 class MicButton extends StatelessWidget {
   final bool listening;
+  final bool speaking;
   final VoidCallback onTap;
   final double diameter;
   const MicButton({
     super.key,
     required this.listening,
+    this.speaking = false,
     required this.onTap,
     this.diameter = 360,
   });
 
   @override
   Widget build(BuildContext context) {
+    final active = speaking || listening;
     return Semantics(
       button: true,
-      label: listening
+      label: speaking
+          ? 'Hentikan suara ALICE'
+          : listening
           ? 'Berhenti mendengarkan suara'
           : 'Mulai bicara dengan ALICE',
-      hint: listening
+      hint: speaking
+          ? 'Ketuk dua kali untuk menghentikan suara ALICE'
+          : listening
           ? 'Ketuk dua kali untuk menghentikan rekaman suara'
           : 'Ketuk dua kali untuk mulai merekam suara Anda',
       excludeSemantics: true,
@@ -34,9 +41,9 @@ class MicButton extends StatelessWidget {
               _circle(diameter * 0.873, const Color(0xFF887CB1)),
               _circle(diameter * 0.696, Colors.white),
               Icon(
-                Icons.mic,
+                speaking ? Icons.stop_rounded : Icons.mic,
                 size: diameter * 0.17,
-                color: listening ? Colors.red : const Color(0xFF46467A),
+                color: active ? Colors.red : const Color(0xFF46467A),
               ),
             ],
           ),

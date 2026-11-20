@@ -15,7 +15,7 @@ func (h *Handler) Handle(c *gin.Context) {
 	}
 	answer, err := h.Ask(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "Maaf, informasi cuaca sedang tidak tersedia. Silakan coba lagi."})
+		c.JSON(http.StatusBadGateway, gin.H{"success": false, "message": "Maaf, ALICE sedang tidak dapat memproses pertanyaan. Silakan coba lagi."})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": answer})
