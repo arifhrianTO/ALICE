@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"time"
 
+	"alice-backend/internal/assistant"
 	"alice-backend/internal/auth"
 	"alice-backend/internal/profile"
 	"alice-backend/internal/shared/config"
@@ -109,6 +110,7 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 	profileService := profile.NewService(userRepo)
 	profileHandler := profile.NewHandler(profileService)
 	health := system.NewHealthHandler(db)
+	assistantHandler := assistant.NewHandler()
 
 	tunanetraRepo := tunanetra.NewRepository(db)
 	tunanetraSearch := tunanetra.NewSearchHandler(tunanetraRepo)
@@ -123,6 +125,7 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 		// Aplikasi Flutter sudah bergantung pada bentuk lama ini.
 		api.GET("/hello", system.Hello)
 		api.GET("/tunanetra", tunanetra.List)
+		api.POST("/assistant/ask", assistantHandler.Handle)
 
 		// --- M0: fondasi ---
 		api.GET("/health", health.Check)
