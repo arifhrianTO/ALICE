@@ -110,6 +110,9 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 	profileHandler := profile.NewHandler(profileService)
 	health := system.NewHealthHandler(db)
 
+	tunanetraRepo := tunanetra.NewRepository(db)
+	tunanetraSearch := tunanetra.NewSearchHandler(tunanetraRepo)
+
 	// ---------------------------------------------------------------
 	// Pendaftaran endpoint
 	// ---------------------------------------------------------------
@@ -138,6 +141,9 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 			protected.POST("/auth/logout", authHandler.Logout)
 			protected.GET("/profile", profileHandler.Get)
 			protected.PUT("/profile", profileHandler.Update)
+
+			// daftar tunanetra asli dari database (untuk halaman Tautkan)
+			protected.GET("/tunanetra/search", tunanetraSearch.Search)
 		}
 	}
 
