@@ -20,6 +20,7 @@ import (
 	"alice-backend/internal/system"
 	"alice-backend/internal/tunanetra"
 	"alice-backend/internal/user"
+	"alice-backend/internal/connection"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -114,6 +115,8 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 
 	tunanetraRepo := tunanetra.NewRepository(db)
 	tunanetraSearch := tunanetra.NewSearchHandler(tunanetraRepo)
+	connectionRepo := connection.NewRepository(db)
+	connectionHandler := connection.NewHandler(connectionRepo)
 
 	// ---------------------------------------------------------------
 	// Pendaftaran endpoint
@@ -147,6 +150,12 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 
 			// daftar tunanetra asli dari database (untuk halaman Tautkan)
 			protected.GET("/tunanetra/search", tunanetraSearch.Search)
+
+			protected.GET("/connections", connectionHandler.List)
+			protected.POST("/connections", connectionHandler.Create)
+			protected.GET("/connections/incoming", connectionHandler.Incoming)
+			protected.PUT("/connections/:id/respond", connectionHandler.Respond)
+			protected.DELETE("/connections/:id", connectionHandler.Delete)
 		}
 	}
 

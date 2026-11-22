@@ -1,6 +1,7 @@
 import 'package:material_ui/material_ui.dart';
 
 import '../../../core/colors.dart';
+import '../../../core/connection_service.dart';
 
 // Gambar bulat ungu + tautan putus untuk pop-up "Putuskan tautan".
 const _kPutuskanImage = 'assets/icons/putuskan.png';
@@ -16,17 +17,41 @@ const _kDeleteBg = Color(0xFFFFE9E9);
 enum ConnectionStatus { terhubung, menunggu, ditolak }
 
 class ConnectionItem {
+  final String id; // request_id di database
   final String name;
   final String email;
   final ConnectionStatus status;
   final String? avatarAsset;
 
   const ConnectionItem({
+    required this.id,
     required this.name,
     required this.email,
     required this.status,
     this.avatarAsset,
   });
+
+  factory ConnectionItem.fromRecord(ConnectionRecord r) {
+    return ConnectionItem(
+      id: r.id,
+      name: r.name,
+      email: r.email,
+      status: _parseStatus(r.status),
+      avatarAsset: _kDefaultAvatar,
+    );
+  }
+
+  static ConnectionStatus _parseStatus(String s) {
+    switch (s.trim().toLowerCase()) {
+      case 'terhubung':
+        return ConnectionStatus.terhubung;
+      case 'ditolak':
+        return ConnectionStatus.ditolak;
+      case 'menunggu':
+      default:
+        return ConnectionStatus.menunggu;
+    }
+  }
 }
 
 enum ConnectionFilter {
@@ -55,6 +80,7 @@ enum ConnectionFilter {
 // ---------------------------------------------------------------------------
 // Halaman Koneksi
 // (tanpa Scaffold & bottom bar, karena sudah disediakan HomeShell)
+// Data dimuat dari GET /api/connections.
 // ---------------------------------------------------------------------------
 class KoneksiPage extends StatefulWidget {
   const KoneksiPage({super.key});
@@ -66,39 +92,42 @@ class KoneksiPage extends StatefulWidget {
 class _KoneksiPageState extends State<KoneksiPage> {
   ConnectionFilter _filter = ConnectionFilter.semua;
 
-  // Data dummy. Ganti dengan data dari API / backend nanti.
-  final List<ConnectionItem> _items = [
-    const ConnectionItem(
-      name: 'Budi Santoso',
-      email: 'BudiSantoso@gmail.com',
-      status: ConnectionStatus.terhubung,
-      avatarAsset: _kDefaultAvatar,
-    ),
-    const ConnectionItem(
-      name: 'Budi Santoso',
-      email: 'BudiSantoso@gmail.com',
-      status: ConnectionStatus.menunggu,
-      avatarAsset: _kDefaultAvatar,
-    ),
-    const ConnectionItem(
-      name: 'Budi Santoso',
-      email: 'BudiSantoso@gmail.com',
-      status: ConnectionStatus.terhubung,
-      avatarAsset: _kDefaultAvatar,
-    ),
-    const ConnectionItem(
-      name: 'Budi Santoso',
-      email: 'BudiSantoso@gmail.com',
-      status: ConnectionStatus.ditolak,
-      avatarAsset: _kDefaultAvatar,
-    ),
-    const ConnectionItem(
-      name: 'Budi Santoso',
-      email: 'BudiSantoso@gmail.com',
-      status: ConnectionStatus.terhubung,
-      avatarAsset: _kDefaultAvatar,
-    ),
-  ];
+  List<ConnectionItem> _items = [];
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  String _cleanError(Object e) =>
+      e.toString().replaceFirst('Exception: ', '');
+
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
+    try {
+      final records = await ConnectionService.fetchConnections();
+      if (!mounted) return;
+      setState(() {
+        _items = records.map(ConnectionItem.fromRecord).toList();
+        _error = null;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = _cleanError(e);
+        _loading = false;
+      });
+    }
+  }
 
   Future<void> _confirmDelete(ConnectionItem item) async {
     final ok = await showDisconnectDialog(
@@ -107,9 +136,95 @@ class _KoneksiPageState extends State<KoneksiPage> {
       // Status "Menunggu" -> teks "Batalkan tautan", selain itu "Putuskan tautan".
       isPending: item.status == ConnectionStatus.menunggu,
     );
-    if (ok == true) {
-      setState(() => _items.remove(item));
+    if (ok != true) return;
+
+    try {
+      await ConnectionService.deleteConnection(item.id);
+      if (!mounted) return;
+      setState(() => _items.removeWhere((e) => e.id == item.id));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_cleanError(e))),
+      );
     }
+  }
+
+  Widget _buildBody(List<ConnectionItem> visible) {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: kPurple),
+      );
+    }
+
+    // Error / kosong dibungkus ListView supaya tetap bisa tarik-untuk-muat-ulang.
+    if (_error != null) {
+      return RefreshIndicator(
+        color: kPurple,
+        onRefresh: () => _load(silent: true),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            const SizedBox(height: 80),
+            Center(
+              child: Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: Colors.black45),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Center(
+              child: TextButton(
+                onPressed: _load,
+                child: const Text(
+                  'Coba lagi',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: kPurple,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (visible.isEmpty) {
+      return RefreshIndicator(
+        color: kPurple,
+        onRefresh: () => _load(silent: true),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 80),
+            Center(
+              child: Text(
+                'Belum ada koneksi',
+                style: TextStyle(fontSize: 13, color: Colors.black45),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      color: kPurple,
+      onRefresh: () => _load(silent: true),
+      child: ListView.separated(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.only(bottom: 100),
+        itemCount: visible.length,
+        separatorBuilder: (_, _) => const SizedBox(height: 14),
+        itemBuilder: (_, i) => ConnectionCard(
+          item: visible[i],
+          onDelete: () => _confirmDelete(visible[i]),
+        ),
+      ),
+    );
   }
 
   @override
@@ -162,24 +277,7 @@ class _KoneksiPageState extends State<KoneksiPage> {
             onChanged: (f) => setState(() => _filter = f),
           ),
           const SizedBox(height: 12),
-          Expanded(
-            child: visible.isEmpty
-                ? const Center(
-                    child: Text(
-                      'Belum ada koneksi',
-                      style: TextStyle(fontSize: 13, color: Colors.black45),
-                    ),
-                  )
-                : ListView.separated(
-                    padding: const EdgeInsets.only(bottom: 100),
-                    itemCount: visible.length,
-                    separatorBuilder: (_, _) => const SizedBox(height: 14),
-                    itemBuilder: (_, i) => ConnectionCard(
-                      item: visible[i],
-                      onDelete: () => _confirmDelete(visible[i]),
-                    ),
-                  ),
-          ),
+          Expanded(child: _buildBody(visible)),
         ],
       ),
     );
