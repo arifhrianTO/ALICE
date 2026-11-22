@@ -18,6 +18,7 @@ class MicButton extends StatelessWidget {
     final active = speaking || listening;
     return Semantics(
       button: true,
+      onTap: onTap,
       label: speaking
           ? 'Hentikan suara ALICE'
           : listening
