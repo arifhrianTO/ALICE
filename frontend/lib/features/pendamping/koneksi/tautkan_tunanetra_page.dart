@@ -4,6 +4,7 @@ import '../../../core/colors.dart';
 import 'tautkan_tunanetra_data.dart';
 import 'widgets/tautkan_tunanetra_dialogs.dart';
 import 'package:alice_app/core/tunanetra_api.dart';
+import 'package:alice_app/core/connection_service.dart';
 
 // =====================================================================
 //  HALAMAN TAUTKAN TUNANETRA
@@ -89,13 +90,24 @@ class _TautkanTunanetraPageState extends State<TautkanTunanetraPage> {
     return n == 0 ? 1 : (n / _kPerPage).ceil();
   }
 
-  Future<void> _onTautkan(TunanetraItem person) async {
+    Future<void> _onTautkan(TunanetraItem person) async {
     final ok = await showTautkanDialog(
       context,
       Tunanetra(name: person.name, email: person.email),
     );
     if (!ok || !mounted) return;
-    showTautkanSnack(context, '${person.name} berhasil ditautkan');
+
+    try {
+      await ConnectionService.sendRequest(person.userId);
+      if (!mounted) return;
+      showTautkanSnack(context, 'Permintaan dikirim ke ${person.name}');
+    } catch (e) {
+      if (!mounted) return;
+      showTautkanSnack(
+        context,
+        e.toString().replaceFirst('Exception: ', ''),
+      );
+    }
   }
 
   @override
