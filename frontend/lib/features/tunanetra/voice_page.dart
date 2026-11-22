@@ -36,10 +36,22 @@ class _VoicePageState extends State<VoicePage> {
   bool _listeningWake = false;
   bool _startingListen = false;
   bool _awaitingLogoutConfirmation = false;
+  int _noMatchRetries = 0;
 
   Timer? _wakeRestartTimer;
   Timer? _hapticTimer;
+  Timer? _listenTimer;
   VoidCallback? _afterSpeak;
+
+  static const int _maxNoMatchRetries = 2;
+  static const Duration _wakeListenFor = Duration(minutes: 5);
+  static const Duration _wakePauseFor = Duration(seconds: 15);
+  static const Duration _commandListenFor = Duration(seconds: 30);
+  static const Duration _commandPauseFor = Duration(seconds: 6);
+  static const Duration _micSettleDelay = Duration(milliseconds: 800);
+  static const Duration _commandHardTimeout = Duration(seconds: 10);
+  static const Duration _wakeHardTimeout = Duration(seconds: 20);
+  static const bool _wakeEnabled = false;
 
   static final RegExp _wakePattern = RegExp(r'\b(hi|hai|hei)\s+alice\b');
   static final RegExp _nonWord = RegExp(r'[^a-z0-9\s]');
@@ -79,7 +91,7 @@ class _VoicePageState extends State<VoicePage> {
       return;
     }
     await _speak(
-      'Halo, selamat datang di ALICE. Ucapkan hai Alice kapan saja untuk memanggil saya. '
+      'Halo, selamat datang di ALICE. Tekan tombol mikrofon lalu ucapkan pertanyaan Anda. '
       'Anda bisa bertanya tentang waktu, tanggal, cuaca, atau lokasi Anda. '
       'Ucapkan keluar untuk mengakhiri sesi.',
       then: _resumeWake,
@@ -89,29 +101,63 @@ class _VoicePageState extends State<VoicePage> {
   Future<void> _initSpeech() async {
     try {
       final available = await _speech.initialize(
+        debugLogging: true,
         onStatus: _onSpeechStatus,
         onError: (error) {
+          if (_disposed) return;
           debugPrint('Speech error: ${error.errorMsg}');
+          final fromWake = _listeningWake;
           _listeningWake = false;
           if (mounted && listening) setState(() => listening = false);
-          if (_wakeActive &&
-              !TtsService.instance.isSpeaking &&
-              !processing) {
-            _scheduleWakeRestart();
+          if (fromWake) {
+            if (_wakeActive &&
+                !TtsService.instance.isSpeaking &&
+                !processing) {
+              final infra = _isSpeechInfraError(error.errorMsg);
+              _scheduleWakeRestart(
+                delay: infra
+                    ? const Duration(milliseconds: 2500)
+                    : const Duration(milliseconds: 1200),
+              );
+            }
+          } else {
+            if (_isSpeechInfraError(error.errorMsg)) {
+              _handleCommandFailure();
+            } else {
+              _handleCommandNoMatch();
+            }
           }
         },
       );
       if (!mounted) return;
       setState(() => _speechAvailable = available);
+      debugPrint('Speech init: available = $available, wakeActive = $_wakeActive');
       if (available && _wakeActive) _scheduleWakeRestart();
     } catch (_) {
+      debugPrint('Speech init: error');
       if (mounted) setState(() => _speechAvailable = false);
     }
+  }
+
+  bool _isSpeechInfraError(String code) =>
+      code == 'error_server_disconnected' ||
+      code == 'error_network' ||
+      code == 'error_busy' ||
+      code == 'error_client';
+
+  Future<void> _handleCommandFailure() async {
+    if (_disposed) return;
+    _noMatchRetries = 0;
+    await _speak(
+      'Pengenalan suara sedang bermasalah. Silakan coba lagi sebentar lagi.',
+      then: _resumeWake,
+    );
   }
 
   void _onSpeechStatus(String status) {
     if (_disposed) return;
     if (status != 'done' && status != 'notListening') return;
+    debugPrint('Speech status: $status');
     final wasCommandListening = !_listeningWake && listening;
     _listeningWake = false;
     if (mounted && wasCommandListening) setState(() => listening = false);
@@ -130,6 +176,7 @@ class _VoicePageState extends State<VoicePage> {
       _stopHaptics();
       _startHaptics();
       _listeningWake = false;
+      _listenTimer?.cancel();
       _speech.cancel();
       if (mounted && listening) setState(() => listening = false);
       return;
@@ -175,7 +222,12 @@ class _VoicePageState extends State<VoicePage> {
       final locales = await _speech.locales();
       for (final locale in locales) {
         final id = locale.localeId.toLowerCase().replaceAll('-', '_');
-        if (id == 'id_id' || id.startsWith('id_')) return locale.localeId;
+        if (id == 'id_id' ||
+            id == 'in_id' ||
+            id.startsWith('id_') ||
+            id.startsWith('in_')) {
+          return locale.localeId;
+        }
       }
     } catch (_) {}
     return null;
@@ -186,51 +238,123 @@ class _VoicePageState extends State<VoicePage> {
         _startingListen ||
         _disposed ||
         TtsService.instance.isSpeaking) {
+      debugPrint(
+        'Speech beginListen($wake): skipped (available=$_speechAvailable, '
+        'starting=$_startingListen, disposed=$_disposed, '
+        'speaking=${TtsService.instance.isSpeaking})',
+      );
+      return;
+    }
+    if (_speech.isListening) {
+      debugPrint('Speech beginListen($wake): still listening, retrying later');
+      _scheduleListenRetry(wake: wake);
       return;
     }
     _startingListen = true;
     try {
       await _speech.cancel();
+      await _waitMicReleased();
       final locale = await _pickLocale();
+      debugPrint('Speech beginListen($wake): starting, locale=$locale');
       _listeningWake = wake;
-      if (!wake && mounted) setState(() => listening = true);
+      if (!wake && mounted) {
+        setState(() => listening = true);
+        HapticFeedback.mediumImpact();
+        await SystemSound.play(SystemSoundType.click);
+      }
       await _speech.listen(
         listenOptions: stt.SpeechListenOptions(
           localeId: locale,
-          listenFor: wake
-              ? const Duration(minutes: 2)
-              : const Duration(seconds: 20),
-          pauseFor: const Duration(seconds: 3),
-          partialResults: wake,
+          listenFor: wake ? _wakeListenFor : _commandListenFor,
+          pauseFor: wake ? _wakePauseFor : _commandPauseFor,
+          partialResults: true,
           cancelOnError: false,
+          listenMode: stt.ListenMode.confirmation,
         ),
         onResult: (result) {
           if (_disposed) return;
+          debugPrint(
+            'Speech recognized: "${result.recognizedWords}" '
+            'final=${result.finalResult}',
+          );
           if (wake) {
             _maybeWake(result.recognizedWords);
           } else if (result.finalResult) {
-            _handleFinal(result.recognizedWords);
+            final text = result.recognizedWords.trim();
+            if (text.isEmpty) {
+              _handleCommandNoMatch();
+            } else {
+              _handleFinal(text);
+            }
           }
         },
       );
+      _listenTimer?.cancel();
+      final hardTimeout = wake ? _wakeHardTimeout : _commandHardTimeout;
+      _listenTimer = Timer(hardTimeout, () {
+        if (_disposed) return;
+        debugPrint('Speech hard timeout ($wake): forcing stop');
+        if (_speech.isListening) {
+          if (wake) _listeningWake = false;
+          if (mounted && listening) setState(() => listening = false);
+          _speech.stop();
+        }
+      });
     } catch (error) {
       debugPrint('Speech listen error: $error');
       _listeningWake = false;
-      if (wake) _scheduleWakeRestart();
+      if (mounted && listening) setState(() => listening = false);
+      if (wake) {
+        _scheduleWakeRestart(delay: const Duration(milliseconds: 1200));
+      } else {
+        _handleCommandFailure();
+      }
     } finally {
       _startingListen = false;
     }
   }
 
-  void _scheduleWakeRestart() {
+  Future<void> _waitMicReleased() async {
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    while (_speech.isListening && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+    }
+    await Future<void>.delayed(_micSettleDelay);
+  }
+
+  void _scheduleListenRetry({required bool wake, int attempts = 0}) {
+    if (_disposed || TtsService.instance.isSpeaking) return;
+    if (attempts >= 5) {
+      debugPrint('Speech listenRetry: give up after 5 attempts');
+      return;
+    }
+    _wakeRestartTimer?.cancel();
+    _wakeRestartTimer = Timer(const Duration(milliseconds: 800), () {
+      if (_disposed || TtsService.instance.isSpeaking) return;
+      if (_startingListen || _speech.isListening) {
+        _scheduleListenRetry(wake: wake, attempts: attempts + 1);
+        return;
+      }
+      if (wake) {
+        if (_wakeActive && !listening) _beginListen(wake: true);
+      } else {
+        _beginListen(wake: false);
+      }
+    });
+  }
+
+  void _scheduleWakeRestart({
+    Duration delay = const Duration(milliseconds: 1500),
+  }) {
     if (_disposed ||
+        !_wakeEnabled ||
         !_wakeActive ||
         listening ||
         TtsService.instance.isSpeaking) {
       return;
     }
     _wakeRestartTimer?.cancel();
-    _wakeRestartTimer = Timer(const Duration(milliseconds: 700), () {
+    _wakeRestartTimer = Timer(delay, () {
       if (_disposed ||
           !_wakeActive ||
           listening ||
@@ -244,15 +368,38 @@ class _VoicePageState extends State<VoicePage> {
 
   void _resumeWake() {
     if (_disposed) return;
-    _wakeActive = true;
+    _wakeActive = _wakeEnabled;
     _listeningWake = false;
-    _scheduleWakeRestart();
+    if (_wakeEnabled) _scheduleWakeRestart();
   }
 
   void _listenForCommand() {
     if (_disposed) return;
     _wakeActive = true;
     _beginListen(wake: false);
+  }
+
+  Future<void> _handleCommandNoMatch() async {
+    if (_disposed) return;
+    if (_awaitingLogoutConfirmation) {
+      _awaitingLogoutConfirmation = false;
+      _resumeWake();
+      return;
+    }
+    if (_noMatchRetries < _maxNoMatchRetries) {
+      _noMatchRetries++;
+      HapticFeedback.heavyImpact();
+      await _speak(
+        'Maaf, saya tidak mendengar dengan jelas. Silakan ucapkan ulang.',
+        then: _listenForCommand,
+      );
+      return;
+    }
+    _noMatchRetries = 0;
+    await _speak(
+      'Saya belum mendengar ucapan Anda. Silakan tekan tombol mikrofon lalu ucapkan pertanyaan Anda.',
+      then: _resumeWake,
+    );
   }
 
   void _maybeWake(String text) {
@@ -296,13 +443,19 @@ class _VoicePageState extends State<VoicePage> {
       await _initSpeech();
       if (!_speechAvailable) {
         _showError('Pengenalan suara tidak tersedia di perangkat ini.');
+        HapticFeedback.heavyImpact();
+        await _speak(
+          'Maaf, mikrofon tidak dapat digunakan. Periksa izin mikrofon pada pengaturan perangkat.',
+          then: _resumeWake,
+        );
         return;
       }
     }
     _wakeActive = true;
+    _noMatchRetries = 0;
     _wakeRestartTimer?.cancel();
     await _speech.cancel();
-    HapticFeedback.mediumImpact();
+    await _waitMicReleased();
     await _beginListen(wake: false);
   }
 
@@ -310,6 +463,7 @@ class _VoicePageState extends State<VoicePage> {
     final text = raw.trim();
     if (text.isEmpty || _disposed) return;
 
+    _noMatchRetries = 0;
     _wakeActive = false;
     _listeningWake = false;
     _wakeRestartTimer?.cancel();
@@ -484,6 +638,7 @@ class _VoicePageState extends State<VoicePage> {
     TtsService.instance.speaking.removeListener(_onSpeakingChanged);
     _wakeRestartTimer?.cancel();
     _hapticTimer?.cancel();
+    _listenTimer?.cancel();
     _speech.cancel();
     _scrollController.dispose();
     TtsService.instance.stop();
