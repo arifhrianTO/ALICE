@@ -170,7 +170,7 @@ class _NavItem extends StatelessWidget {
             duration: const Duration(milliseconds: 350),
             curve: Curves.easeOutCubic,
             padding: EdgeInsets.symmetric(
-              horizontal: selected ? 12 : 8,
+              horizontal: selected ? 10 : 8,
               vertical: 6,
             ),
             decoration: BoxDecoration(
@@ -200,7 +200,14 @@ class _NavItem extends StatelessWidget {
                     fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
                     color: selected ? kDarkPurple : kPurple,
                   ),
-                  child: Text(label),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      softWrap: false,
+                    ),
+                  ),
                 ),
               ],
             ),
