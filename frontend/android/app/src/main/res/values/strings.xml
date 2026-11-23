@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Konfigurasi Facebook SDK untuk Android.
+      Nilai App ID & Client Token diambil dari Meta Developer Console
+      (App Settings > Basic dan Advanced > Security).
+    -->
+    <string name="facebook_app_id">1615961146947500</string>
+    <string name="fb_login_protocol_scheme">fb1615961146947500</string>
+    <string name="facebook_client_token">8895b113687303726612e76f1bebf397</string>
+</resources>

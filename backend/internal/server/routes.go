@@ -12,7 +12,9 @@ import (
 	"net/http"
 	"time"
 
+	"alice-backend/internal/assistant"
 	"alice-backend/internal/auth"
+	"alice-backend/internal/connection"
 	"alice-backend/internal/notification"
 	"alice-backend/internal/profile"
 	"alice-backend/internal/request"
@@ -120,6 +122,8 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 		db,
 		time.Duration(cfg.SessionTTLHours)*time.Hour,
 		cfg.GoogleClientID,
+		cfg.FacebookAppID,
+		cfg.FacebookAppSecret,
 	)
 	notificationService := notification.NewService(notificationRepo, notificationSender)
 
@@ -134,6 +138,12 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 	requestHandler := request.NewHandler(requestService)
 	notificationHandler := notification.NewHandler(notificationService)
 	health := system.NewHealthHandler(db)
+	assistantHandler := assistant.NewHandler()
+
+	tunanetraRepo := tunanetra.NewRepository(db)
+	tunanetraSearch := tunanetra.NewSearchHandler(tunanetraRepo)
+	connectionRepo := connection.NewRepository(db)
+	connectionHandler := connection.NewHandler(connectionRepo)
 
 	// ---------------------------------------------------------------
 	// Pendaftaran endpoint
@@ -145,6 +155,7 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 		// Aplikasi Flutter sudah bergantung pada bentuk lama ini.
 		api.GET("/hello", system.Hello)
 		api.GET("/tunanetra", tunanetra.List)
+		api.POST("/assistant/ask", assistantHandler.Handle)
 
 		// --- M0: fondasi ---
 		api.GET("/health", health.Check)
@@ -153,12 +164,14 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 		api.POST("/auth/register", authHandler.Register)
 		api.POST("/auth/login", authHandler.Login)
 		api.POST("/auth/google", authHandler.GoogleLogin)
+		api.POST("/auth/facebook", authHandler.FacebookLogin)
 
 		// --- M2: endpoint yang butuh token ---
 		// Middleware.Auth membaca header `Authorization: Bearer <token>`,
 		// memeriksa tabel session, lalu mengisi `user_id` ke context.
 		protected := api.Group("", middleware.Auth(db))
 		{
+			protected.POST("/auth/logout", authHandler.Logout)
 			protected.GET("/profile", profileHandler.Get)
 			protected.PUT("/profile", profileHandler.Update)
 
@@ -180,6 +193,16 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 			// mendaftarkan/menghapus token perangkat.
 			protected.POST("/device-tokens", notificationHandler.RegisterToken)
 			protected.DELETE("/device-tokens", notificationHandler.DeleteToken)
+
+			// --- Endpoint dari main: pencarian & koneksi tunanetra ---
+			// daftar tunanetra asli dari database (untuk halaman Tautkan)
+			protected.GET("/tunanetra/search", tunanetraSearch.Search)
+
+			protected.GET("/connections", connectionHandler.List)
+			protected.POST("/connections", connectionHandler.Create)
+			protected.GET("/connections/incoming", connectionHandler.Incoming)
+			protected.PUT("/connections/:id/respond", connectionHandler.Respond)
+			protected.DELETE("/connections/:id", connectionHandler.Delete)
 		}
 	}
 

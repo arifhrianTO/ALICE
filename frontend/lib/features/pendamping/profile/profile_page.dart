@@ -1,13 +1,16 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
+import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http;
+import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/api_config.dart';
 import '../../../core/colors.dart';
 import '../../../core/notification_service.dart';
 import '../../auth/role_page.dart';
+import '../jadwal/jadwal_data.dart';
 
 const _kPinkButton = Color(0xFFFFDAD6);
 const _kRed = Color(0xFFE50000);
@@ -55,10 +58,12 @@ class _ProfilePageState extends State<ProfilePage> {
     final token = prefs.getString('session_token') ?? '';
     if (token.isNotEmpty) {
       try {
-        final response = await http.get(
-          Uri.parse('${ApiConfig.baseUrl}/api/profile'),
-          headers: {'Authorization': 'Bearer $token'},
-        ).timeout(const Duration(seconds: 10));
+        final response = await http
+            .get(
+              Uri.parse('${ApiConfig.baseUrl}/api/profile'),
+              headers: {'Authorization': 'Bearer $token'},
+            )
+            .timeout(const Duration(seconds: 10));
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -98,31 +103,35 @@ class _ProfilePageState extends State<ProfilePage> {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('session_token') ?? '';
 
-    if (token.isNotEmpty) {
-      try {
-        final response = await http.put(
-          Uri.parse('${ApiConfig.baseUrl}/api/profile'),
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer $token',
-          },
-          body: jsonEncode({
-            'name': name,
-            'phone_number': phone,
-            'address': address,
-          }),
-        ).timeout(const Duration(seconds: 10));
+    if (token.isEmpty) {
+      _showMessage('Sesi tidak ditemukan. Silakan masuk ulang.');
+      return false;
+    }
 
-        if (response.statusCode != 200) {
-          final data = jsonDecode(response.body) as Map<String, dynamic>;
-          _showMessage(
-              data['message'] as String? ?? 'Gagal menyimpan profil.');
-          return false;
-        }
-      } catch (_) {
-        _showMessage('Gagal menghubungi server. Silakan coba lagi.');
+    try {
+      final response = await http
+          .put(
+            Uri.parse('${ApiConfig.baseUrl}/api/profile'),
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+            body: jsonEncode({
+              'name': name,
+              'phone_number': phone,
+              'address': address,
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode != 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        _showMessage(data['message'] as String? ?? 'Gagal menyimpan profil.');
         return false;
       }
+    } catch (_) {
+      _showMessage('Gagal menghubungi server. Silakan coba lagi.');
+      return false;
     }
 
     await prefs.setString('user_name', name);
@@ -144,13 +153,15 @@ class _ProfilePageState extends State<ProfilePage> {
         .showSnackBar(SnackBar(content: Text(message)));
   }
 
-  String _filled(String value) =>
-      value.trim().isEmpty ? 'Belum diisi' : value;
+  String _filled(String value) => value.trim().isEmpty ? 'Belum diisi' : value;
 
   /// Sama dengan aturan backend: buang spasi/tanda hubung, lalu terima
   /// nomor yang diawali "+" dan berisi 9–15 digit.
+  ///
+  /// Nomor boleh kosong (misalnya akun OAuth yang belum mengisinya).
   bool _isValidPhone(String raw) {
     final cleaned = raw.replaceAll(RegExp(r'[^0-9+]'), '');
+    if (cleaned.isEmpty) return true;
     return RegExp(r'^\+?[0-9]{9,15}$').hasMatch(cleaned);
   }
 
@@ -171,11 +182,14 @@ class _ProfilePageState extends State<ProfilePage> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Ubah Profil',
-                  style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: kDarkPurple)),
+              const Text(
+                'Ubah Profil',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: kDarkPurple,
+                ),
+              ),
               const SizedBox(height: 16),
               _label('Nama Pengguna'),
               _field(nameCtrl),
@@ -189,8 +203,12 @@ class _ProfilePageState extends State<ProfilePage> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
-                  _button('Batal', kLightPurple, kDarkPurple,
-                      () => Navigator.pop(ctx)),
+                  _button(
+                    'Batal',
+                    kLightPurple,
+                    kDarkPurple,
+                    () => Navigator.pop(ctx),
+                  ),
                   const SizedBox(width: 12),
                   _button('Ubah', kPurple, Colors.white, () async {
                     final name = nameCtrl.text.trim();
@@ -233,18 +251,25 @@ class _ProfilePageState extends State<ProfilePage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Yakin ingin keluar?',
-                  style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      color: kDarkPurple)),
+              const Text(
+                'Yakin ingin keluar?',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: kDarkPurple,
+                ),
+              ),
               const SizedBox(height: 24),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _button('Batal', kLightPurple, kDarkPurple,
-                      () => Navigator.pop(ctx, false),
-                      width: 100),
+                  _button(
+                    'Batal',
+                    kLightPurple,
+                    kDarkPurple,
+                    () => Navigator.pop(ctx, false),
+                    width: 100,
+                  ),
                   const SizedBox(width: 16),
                   _button('Keluar', kPurple, Colors.white, () {
                     Navigator.pop(ctx, true);
@@ -263,7 +288,44 @@ class _ProfilePageState extends State<ProfilePage> {
     await NotificationService.unregisterCurrentDevice();
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    final token = prefs.getString('session_token') ?? '';
+
+    // Cabut sesi di server (best effort: kalau gagal, sesi lokal tetap
+    // dibersihkan supaya pengguna tidak terjebak).
+    if (token.isNotEmpty) {
+      try {
+        await http
+            .post(
+              Uri.parse('${ApiConfig.baseUrl}/api/auth/logout'),
+              headers: {'Authorization': 'Bearer $token'},
+            )
+            .timeout(const Duration(seconds: 10));
+      } catch (_) {}
+    }
+
+    // Lepaskan sesi SDK OAuth agar tidak otomatis masuk lagi.
+    try {
+      await FacebookAuth.instance.logOut();
+    } catch (_) {}
+    try {
+      await GoogleSignIn().signOut();
+    } catch (_) {}
+
+    // Hanya hapus data sesi; flag onboarding dipertahankan.
+    for (final key in const [
+      'isLoggedIn',
+      'session_token',
+      'user_id',
+      'user_role',
+      'user_name',
+      'user_email',
+      'user_phone',
+      'user_address',
+    ]) {
+      await prefs.remove(key);
+    }
+
+    scheduleStore.reset();
 
     if (!mounted) return;
     Navigator.pushAndRemoveUntil(
@@ -274,16 +336,22 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   Widget _label(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Text(text,
-            style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: kDarkPurple)),
-      );
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Text(
+      text,
+      style: const TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        color: kDarkPurple,
+      ),
+    ),
+  );
 
-  Widget _field(TextEditingController c,
-      {int maxLines = 1, TextInputType? keyboardType}) {
+  Widget _field(
+    TextEditingController c, {
+    int maxLines = 1,
+    TextInputType? keyboardType,
+  }) {
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
       borderSide: BorderSide(color: Colors.grey.shade300),
@@ -294,17 +362,25 @@ class _ProfilePageState extends State<ProfilePage> {
       keyboardType: keyboardType,
       style: const TextStyle(color: kTextPurple, fontSize: 15),
       decoration: InputDecoration(
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         enabledBorder: border,
         focusedBorder: border.copyWith(
-            borderSide: const BorderSide(color: kPurple)),
+          borderSide: const BorderSide(color: kPurple),
+        ),
       ),
     );
   }
 
-  Widget _button(String text, Color bg, Color fg, VoidCallback onTap,
-      {double? width}) {
+  Widget _button(
+    String text,
+    Color bg,
+    Color fg,
+    VoidCallback onTap, {
+    double? width,
+  }) {
     return SizedBox(
       width: width,
       child: ElevatedButton(
@@ -314,17 +390,22 @@ class _ProfilePageState extends State<ProfilePage> {
           foregroundColor: fg,
           elevation: 2,
           padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
         ),
-        child:
-            Text(text, style: const TextStyle(fontWeight: FontWeight.w700)),
+        child: Text(text, style: const TextStyle(fontWeight: FontWeight.w700)),
       ),
     );
   }
 
-  Widget _infoCard(IconData icon, String text,
-      {Color? iconColor, Color? textColor, VoidCallback? onTap}) {
+  Widget _infoCard(
+    IconData icon,
+    String text, {
+    Color? iconColor,
+    Color? textColor,
+    VoidCallback? onTap,
+  }) {
     return Semantics(
       button: onTap != null,
       label: text,
@@ -348,11 +429,14 @@ class _ProfilePageState extends State<ProfilePage> {
                   Icon(icon, color: iconColor ?? kPurple, size: 28),
                   const SizedBox(width: 20),
                   Expanded(
-                    child: Text(text,
-                        style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w500,
-                            color: textColor ?? kTextPurple)),
+                    child: Text(
+                      text,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: textColor ?? kTextPurple,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -372,11 +456,14 @@ class _ProfilePageState extends State<ProfilePage> {
         children: [
           const Padding(
             padding: EdgeInsets.only(left: 6, bottom: 16),
-            child: Text('Profil',
-                style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.w700,
-                    color: kDarkPurple)),
+            child: Text(
+              'Profil',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.w700,
+                color: kDarkPurple,
+              ),
+            ),
           ),
           Container(
             width: double.infinity,
@@ -394,13 +481,15 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                    _loading
-                        ? 'Memuat...'
-                        : (_name.trim().isEmpty ? 'Pengguna' : _name),
-                    style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white)),
+                  _loading
+                      ? 'Memuat...'
+                      : (_name.trim().isEmpty ? 'Pengguna' : _name),
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
                 const SizedBox(height: 16),
                 ElevatedButton(
                   onPressed: _showEditDialog,
@@ -409,12 +498,17 @@ class _ProfilePageState extends State<ProfilePage> {
                     foregroundColor: kDarkPurple,
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(
-                        horizontal: 28, vertical: 12),
+                      horizontal: 28,
+                      vertical: 12,
+                    ),
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30)),
+                      borderRadius: BorderRadius.circular(30),
+                    ),
                   ),
-                  child: const Text('Ubah Profil',
-                      style: TextStyle(fontWeight: FontWeight.w700)),
+                  child: const Text(
+                    'Ubah Profil',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
                 ),
               ],
             ),
@@ -423,10 +517,13 @@ class _ProfilePageState extends State<ProfilePage> {
           _infoCard(Icons.mail, _loading ? '...' : _filled(_email)),
           _infoCard(Icons.phone, _filled(_phone)),
           _infoCard(Icons.location_on, _filled(_address)),
-          _infoCard(Icons.logout, 'Keluar',
-              iconColor: _kRed,
-              textColor: _kRed,
-              onTap: _showLogoutDialog),
+          _infoCard(
+            Icons.logout,
+            'Keluar',
+            iconColor: _kRed,
+            textColor: _kRed,
+            onTap: _showLogoutDialog,
+          ),
         ],
       ),
     );

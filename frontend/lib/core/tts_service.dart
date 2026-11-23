@@ -17,7 +17,13 @@ class TtsService {
 
   final FlutterTts _tts = FlutterTts();
   bool _ready = false;
+  int _speakId = 0;
   String? _lang; // bahasa yang sedang aktif di engine
+
+  /// Bernilai true selama ALICE sedang membacakan suara.
+  final ValueNotifier<bool> speaking = ValueNotifier<bool>(false);
+
+  bool get isSpeaking => speaking.value;
 
   Future<void> init() async {
     if (_ready) return;
@@ -40,6 +46,7 @@ class TtsService {
   /// Membacakan string biasa. Tidak pernah melempar error.
   /// [language] contoh: 'id-ID' (Indonesia, default) atau 'en-US' (Inggris).
   Future<void> speak(String text, {String language = 'id-ID'}) async {
+    final id = ++_speakId;
     try {
       await init();
       await _tts.stop();
@@ -48,14 +55,20 @@ class TtsService {
         debugPrint('TTS: ganti bahasa ke $language, hasil = $ok');
         _lang = language;
       }
+      if (id != _speakId) return;
+      speaking.value = true;
       final r = await _tts.speak(text);
       debugPrint('TTS: speak hasil = $r | teks = $text');
     } catch (e) {
       debugPrint('TTS speak error: $e');
+    } finally {
+      if (id == _speakId) speaking.value = false;
     }
   }
 
   Future<void> stop() async {
+    _speakId++;
+    speaking.value = false;
     try {
       await _tts.stop();
     } catch (_) {}

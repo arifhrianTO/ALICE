@@ -1,5 +1,8 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:material_ui/material_ui.dart';
+import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 
+import 'core/api_config.dart';
 import 'core/colors.dart';
 import 'core/notification_service.dart';
 import 'features/auth/splash_page.dart';
@@ -10,12 +13,33 @@ import 'features/pendamping/koneksi/tautkan_tunanetra_page.dart';
 import 'features/pendamping/profile/profile_page.dart';
 import 'features/pendamping/widgets/bottom_bar.dart';
 
-void main() async {
+Future<void> main() async {
   // Firebase butuh pengikatan Flutter sebelum dipakai.
   WidgetsFlutterBinding.ensureInitialized();
 
   // Kegagalan di sini tidak menghentikan aplikasi: lihat NotificationService.
   await NotificationService.init();
+
+  // Facebook SDK berbasis JavaScript/WebView perlu diinisialisasi lebih
+  // dulu pada web dan desktop. Android/iOS memakai SDK native.
+  if (kIsWeb ||
+      defaultTargetPlatform == TargetPlatform.windows ||
+      defaultTargetPlatform == TargetPlatform.macOS) {
+    try {
+      await FacebookAuth.i
+          .webAndDesktopInitialize(
+            appId: ApiConfig.facebookAppId,
+            cookie: true,
+            xfbml: true,
+            version: 'v19.0',
+          )
+          .timeout(const Duration(seconds: 10));
+    } catch (e) {
+      // Jangan sampai aplikasi gagal start hanya karena SDK Facebook
+      // tidak bisa dimuat. Login Facebook akan menampilkan pesan error.
+      debugPrint('Inisialisasi Facebook gagal: $e');
+    }
+  }
 
   runApp(const AliceApp());
 }

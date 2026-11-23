@@ -2,6 +2,7 @@ package auth_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -34,9 +35,17 @@ func (m *mockUserRepo) UpdateProfile(ctx context.Context, userID, name string, p
 	return nil
 }
 
+func (m *mockUserRepo) ListAccountsByRole(ctx context.Context, role string) ([]user.Account, error) {
+	return nil, nil
+}
+
 type mockSessionRepo struct{}
 
 func (m *mockSessionRepo) Create(ctx context.Context, s *auth.Session) error {
+	return nil
+}
+
+func (m *mockSessionRepo) DeleteByToken(ctx context.Context, token string) error {
 	return nil
 }
 
@@ -55,7 +64,7 @@ func TestLogin(t *testing.T) {
 		Password: &hashStr,
 	}
 
-	svc := auth.NewService(&mockUserRepo{user: mockUser}, &mockSessionRepo{}, nil, time.Hour)
+	svc := auth.NewService(&mockUserRepo{user: mockUser}, &mockSessionRepo{}, nil, time.Hour, "", "", "")
 
 	// Case 1: user not found
 	if _, err := svc.Login(ctx, auth.LoginInput{Email: "unknown@example.com", Password: "any"}); err != auth.ErrInvalidCredentials {
@@ -82,14 +91,20 @@ func TestRegister(t *testing.T) {
 	var createdUser *user.User
 
 	mockU := &mockUserRepoCreate{
-		onCreate: func(u *user.User) error {
-			createdUser = u
-			u.UserID = "usr-new"
+		onCreate: func(in user.CreateInput) error {
+			createdUser = in.User
+			in.User.UserID = "usr-new"
+			if in.PhoneNumber != nil {
+				createdUser.PhoneNumber = *in.PhoneNumber
+			}
+			if in.Address != nil {
+				createdUser.Address = *in.Address
+			}
 			return nil
 		},
 	}
 
-	svc := auth.NewService(mockU, &mockSessionRepo{}, nil, time.Hour)
+	svc := auth.NewService(mockU, &mockSessionRepo{}, nil, time.Hour, "", "", "")
 
 	res, err := svc.Register(ctx, auth.RegisterInput{
 		Name:        "Pendamping Baru",
@@ -110,17 +125,79 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+func TestLoginWithFacebook_EmptyToken(t *testing.T) {
+	svc := auth.NewService(&mockUserRepo{}, &mockSessionRepo{}, nil, time.Hour, "", "", "")
+	_, err := svc.LoginWithFacebook(context.Background(), "", "", "pendamping")
+	if err == nil {
+		t.Fatal("expected error for empty Facebook access token, got nil")
+	}
+}
+
+func TestLogout_EmptyToken(t *testing.T) {
+	svc := auth.NewService(&mockUserRepo{}, &mockSessionRepo{}, nil, time.Hour, "", "", "")
+
+	if err := svc.Logout(context.Background(), "   "); err == nil {
+		t.Fatal("expected error for empty session token, got nil")
+	}
+}
+
+func TestLoginWithFacebook_InvalidRole(t *testing.T) {
+	svc := auth.NewService(
+		&mockUserRepo{}, &mockSessionRepo{}, nil, time.Hour,
+		"", "app-id", "app-secret",
+	)
+
+	_, err := svc.LoginWithFacebook(context.Background(), "dummy-token", "classic", "admin")
+	if err == nil {
+		t.Fatal("expected error for invalid role, got nil")
+	}
+
+	var ve *auth.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
+func TestLoginWithFacebook_InvalidTokenType(t *testing.T) {
+	svc := auth.NewService(
+		&mockUserRepo{}, &mockSessionRepo{}, nil, time.Hour,
+		"", "app-id", "app-secret",
+	)
+
+	_, err := svc.LoginWithFacebook(context.Background(), "dummy-token", "weird", "pendamping")
+	if err == nil {
+		t.Fatal("expected error for unknown token type, got nil")
+	}
+
+	var ve *auth.ValidationError
+	if !errors.As(err, &ve) {
+		t.Fatalf("expected ValidationError, got %T: %v", err, err)
+	}
+}
+
 type mockUserRepoCreate struct {
-	onCreate func(u *user.User) error
+	onCreate func(in user.CreateInput) error
 }
 
 func (m *mockUserRepoCreate) FindByEmail(ctx context.Context, email string) (*user.User, error) {
 	return nil, nil
 }
 
-func (m *mockUserRepoCreate) Create(ctx context.Context, u *user.User) error {
+func (m *mockUserRepoCreate) Create(ctx context.Context, in user.CreateInput) error {
 	if m.onCreate != nil {
-		return m.onCreate(u)
+		return m.onCreate(in)
 	}
 	return nil
+}
+
+func (m *mockUserRepoCreate) FindProfile(ctx context.Context, userID string) (*user.Profile, error) {
+	return nil, nil
+}
+
+func (m *mockUserRepoCreate) UpdateProfile(ctx context.Context, userID, name string, phoneNumber, address *string) error {
+	return nil
+}
+
+func (m *mockUserRepoCreate) ListAccountsByRole(ctx context.Context, role string) ([]user.Account, error) {
+	return nil, nil
 }

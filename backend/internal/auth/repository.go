@@ -17,6 +17,9 @@ import (
 type SessionRepository interface {
 	// Create menyimpan satu sesi login baru.
 	Create(ctx context.Context, s *Session) error
+
+	// DeleteByToken mencabut satu sesi sehingga tokennya tidak berlaku lagi.
+	DeleteByToken(ctx context.Context, token string) error
 }
 
 type postgresSessionRepository struct {
@@ -40,4 +43,14 @@ func (r *postgresSessionRepository) Create(ctx context.Context, s *Session) erro
 		}
 		return nil
 	})
+}
+
+// DeleteByToken menghapus sesi berdasarkan nilai tokennya.
+func (r *postgresSessionRepository) DeleteByToken(ctx context.Context, token string) error {
+	const query = `DELETE FROM "session" WHERE session_token = $1`
+
+	if _, err := r.pool.Exec(ctx, query, token); err != nil {
+		return fmt.Errorf("hapus session: %w", err)
+	}
+	return nil
 }

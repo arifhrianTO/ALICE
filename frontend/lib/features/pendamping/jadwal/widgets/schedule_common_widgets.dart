@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 
 import '../../../../core/colors.dart';
 import '../jadwal_data.dart';
@@ -43,13 +43,13 @@ class RepeatChip extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (schedule.repeat.isRepeating) ...[
-            const Icon(Icons.repeat_rounded, size: 10, color: kTitleIndigo),
-            const SizedBox(width: 3),
+            const Icon(Icons.repeat_rounded, size: 15, color: kTitleIndigo),
+            const SizedBox(width: 6),
           ],
           Text(
             schedule.repeatLabel,
             style: const TextStyle(
-              fontSize: 12,
+              fontSize: 14,
               fontWeight: FontWeight.w600,
               color: kTitleIndigo,
             ),
@@ -70,12 +70,12 @@ class ReminderInline extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(Icons.notifications, size: 11, color: kDarkPurple),
+        const Icon(Icons.notifications, size: 14, color: kDarkPurple),
         const SizedBox(width: 3),
         Text(
           '$minutes mnt',
           style: const TextStyle(
-            fontSize: 13,
+            fontSize: 16,
             fontWeight: FontWeight.w600,
             color: kTextPurple,
           ),
@@ -92,7 +92,7 @@ class OutlineBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: kPurple.withValues(alpha: 0.6)),
@@ -100,7 +100,7 @@ class OutlineBadge extends StatelessWidget {
       child: Text(
         text,
         style: const TextStyle(
-          fontSize: 10,
+          fontSize: 13,
           fontWeight: FontWeight.w500,
           color: kDarkPurple,
         ),
@@ -149,7 +149,7 @@ class StatusBadge extends StatelessWidget {
           Text(
             status.label,
             style: TextStyle(
-              fontSize: 12,
+              fontSize: 13,
               fontWeight: FontWeight.w600,
               color: fg,
             ),
