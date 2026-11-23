@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/colors.dart';
+import '../../core/notification_service.dart';
 import '../../core/text.dart';
 import '../auth/role_page.dart';
 import 'widgets/chat_bubble.dart';
@@ -57,6 +58,9 @@ class _VoicePageState extends State<VoicePage> {
     );
 
     if (confirm != true) return;
+
+    // Lepaskan HP ini dari akun dulu, selagi token sesi masih tersimpan.
+    await NotificationService.unregisterCurrentDevice();
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();

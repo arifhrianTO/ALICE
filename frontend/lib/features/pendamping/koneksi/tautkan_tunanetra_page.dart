@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/colors.dart';
+import 'koneksi_data.dart';
 import 'tautkan_tunanetra_data.dart';
 import 'widgets/tautkan_tunanetra_dialogs.dart';
 
@@ -26,6 +27,20 @@ class _TautkanTunanetraPageState extends State<TautkanTunanetraPage> {
   /// Arah animasi pindah halaman: true = maju (ke kanan), false = mundur.
   bool _forward = true;
 
+  /// Status pemuatan daftar dari backend.
+  bool _loading = true;
+  String? _error;
+
+  /// Semua tunanetra asli yang berhasil dimuat dari backend.
+  /// Pencarian & pagination dikerjakan di sisi klien dari daftar ini.
+  List<Tunanetra> _all = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
   void _goTo(int p) {
     if (p == _page) return;
     setState(() {
@@ -40,11 +55,40 @@ class _TautkanTunanetraPageState extends State<TautkanTunanetraPage> {
     super.dispose();
   }
 
+  /// Memuat daftar tunanetra asli dari backend.
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final list = await TunanetraService.fetchAll();
+      if (!mounted) return;
+      setState(() {
+        _all = list;
+        _page = 0;
+        _loading = false;
+      });
+    } on TunanetraException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.message;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Gagal menghubungi server. Coba lagi.';
+        _loading = false;
+      });
+    }
+  }
+
   /// Daftar yang sudah difilter sesuai kata kunci pencarian.
   List<Tunanetra> get _filtered {
     final q = _query.trim().toLowerCase();
-    if (q.isEmpty) return dummyTunanetra;
-    return dummyTunanetra
+    if (q.isEmpty) return _all;
+    return _all
         .where((t) =>
             t.name.toLowerCase().contains(q) ||
             t.email.toLowerCase().contains(q))
@@ -59,15 +103,27 @@ class _TautkanTunanetraPageState extends State<TautkanTunanetraPage> {
   Future<void> _onTautkan(Tunanetra person) async {
     final ok = await showTautkanDialog(context, person);
     if (!ok || !mounted) return;
-    showTautkanSnack(context, '${person.name} berhasil ditautkan');
+
+    try {
+      // Kirim pengajuan tautan ke backend; statusnya "Menunggu" sampai
+      // tunanetra menyetujuinya. Halaman "Terhubung" membacanya lagi.
+      await ConnectionService.create(person.id);
+      if (!mounted) return;
+      showTautkanSnack(context, 'Pengajuan tautan ke ${person.name} terkirim');
+      // Tutup halaman dan beri tahu HomeShell agar me-refresh tab Terhubung.
+      Navigator.of(context).pop(true);
+    } on ConnectionException catch (e) {
+      if (!mounted) return;
+      showTautkanSnack(context, e.message);
+    } catch (_) {
+      if (!mounted) return;
+      showTautkanSnack(context, 'Gagal menghubungi server. Coba lagi.');
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final items = _filtered;
-    final totalPages = _totalPages;
-    final page = _page.clamp(0, totalPages - 1);
-    final pageItems = items.skip(page * _kPerPage).take(_kPerPage).toList();
+    final ready = !_loading && _error == null;
 
     return Scaffold(
       backgroundColor: kBg,
@@ -76,65 +132,82 @@ class _TautkanTunanetraPageState extends State<TautkanTunanetraPage> {
           child: Column(
             children: [
               _Header(onBack: () => Navigator.of(context).maybePop()),
-              _SearchBar(
-                controller: _search,
-                onChanged: (v) => setState(() {
-                  _query = v;
-                  _page = 0;
-                  _forward = true;
-                }),
-              ),
-              const SizedBox(height: 16),
-              AnimatedSwitcher(
-                duration: const Duration(milliseconds: 340),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                // Halaman baru meluncur masuk searah (kiri/kanan) sambil
-                // halaman lama meluncur keluar, plus fade halus.
-                transitionBuilder: (child, anim) {
-                  final begin = Offset(_forward ? 1.0 : -1.0, 0);
-                  final slide = Tween<Offset>(begin: begin, end: Offset.zero)
-                      .animate(anim);
-                  return ClipRect(
-                    child: FadeTransition(
-                      opacity: anim,
-                      child: SlideTransition(position: slide, child: child),
-                    ),
-                  );
-                },
-                layoutBuilder: (current, previous) => Stack(
-                  alignment: Alignment.topCenter,
-                  children: [...previous, ?current],
+              if (ready)
+                _SearchBar(
+                  controller: _search,
+                  onChanged: (v) => setState(() {
+                    _query = v;
+                    _page = 0;
+                    _forward = true;
+                  }),
                 ),
-                child: pageItems.isEmpty
-                    ? const _EmptyState(key: ValueKey('empty'))
-                    : Padding(
-                        key: ValueKey('page-$page-$_query'),
-                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            for (int i = 0; i < pageItems.length; i++) ...[
-                              if (i > 0) const SizedBox(height: 10),
-                              _TunanetraCard(
-                                person: pageItems[i],
-                                onTautkan: () => _onTautkan(pageItems[i]),
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-              ),
               const SizedBox(height: 16),
-              _PaginationBar(
-                page: page,
-                totalPages: totalPages,
-                onSelect: _goTo,
-              ),
+              if (_loading)
+                const _StatusState.loading()
+              else if (_error != null)
+                _StatusState.error(_error!, onRetry: _load)
+              else
+                _buildList(),
+              if (ready) ...[
+                const SizedBox(height: 16),
+                _PaginationBar(
+                  page: _page.clamp(0, _totalPages - 1),
+                  totalPages: _totalPages,
+                  onSelect: _goTo,
+                ),
+              ],
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildList() {
+    final items = _filtered;
+    final totalPages = _totalPages;
+    final page = _page.clamp(0, totalPages - 1);
+    final pageItems = items.skip(page * _kPerPage).take(_kPerPage).toList();
+
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 340),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      // Halaman baru meluncur masuk searah (kiri/kanan) sambil
+      // halaman lama meluncur keluar, plus fade halus.
+      transitionBuilder: (child, anim) {
+        final begin = Offset(_forward ? 1.0 : -1.0, 0);
+        final slide =
+            Tween<Offset>(begin: begin, end: Offset.zero).animate(anim);
+        return ClipRect(
+          child: FadeTransition(
+            opacity: anim,
+            child: SlideTransition(position: slide, child: child),
+          ),
+        );
+      },
+      layoutBuilder: (current, previous) => Stack(
+        alignment: Alignment.topCenter,
+        children: [...previous, ?current],
+      ),
+      child: pageItems.isEmpty
+          ? const _EmptyState(key: ValueKey('empty'))
+          : Padding(
+              key: ValueKey('page-$page-$_query'),
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (int i = 0; i < pageItems.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 10),
+                    _TunanetraCard(
+                      person: pageItems[i],
+                      onTautkan: () => _onTautkan(pageItems[i]),
+                    ),
+                  ],
+                ],
+              ),
+            ),
     );
   }
 }
@@ -370,6 +443,74 @@ class _EmptyState extends StatelessWidget {
           'Tunanetra tidak ditemukan',
           style: TextStyle(fontSize: 13, color: Colors.black45),
         ),
+      ),
+    );
+  }
+}
+
+/// Tampilan status saat data belum siap: sedang memuat, atau gagal
+/// dengan tombol "Coba lagi".
+class _StatusState extends StatelessWidget {
+  final String message;
+  final bool loading;
+  final VoidCallback? onRetry;
+
+  const _StatusState.loading()
+      : message = 'Memuat daftar tunanetra...',
+        loading = true,
+        onRetry = null;
+
+  const _StatusState.error(this.message, {required this.onRetry})
+      : loading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 220,
+      width: double.infinity,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (loading) ...[
+            const CircularProgressIndicator(color: kPurple),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              style: const TextStyle(fontSize: 13, color: Colors.black54),
+            ),
+          ] else ...[
+            const Icon(Icons.error_outline, color: kPurple, size: 40),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 13, color: Colors.black54),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Material(
+              color: kPurple,
+              borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: onRetry,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                  child: Text(
+                    'Coba lagi',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

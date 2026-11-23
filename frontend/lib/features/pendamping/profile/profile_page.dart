@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../core/api_config.dart';
 import '../../../core/colors.dart';
+import '../../../core/notification_service.dart';
 import '../../auth/role_page.dart';
 
 const _kPinkButton = Color(0xFFFFDAD6);
@@ -257,6 +258,9 @@ class _ProfilePageState extends State<ProfilePage> {
     );
 
     if (confirm != true) return;
+
+    // Lepaskan HP ini dari akun dulu, selagi token sesi masih tersimpan.
+    await NotificationService.unregisterCurrentDevice();
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
