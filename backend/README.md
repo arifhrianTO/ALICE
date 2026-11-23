@@ -1047,6 +1047,9 @@ saja**, dan mudah diperiksa langsung lewat `psql`.
 | GET | `/api/health` | baku (`success`, `message`, `data`) | status server + database |
 | POST | `/api/auth/register` | baku | daftar akun baru, langsung dapat token |
 | POST | `/api/auth/login` | baku | masuk dengan email & password, menerima token |
+| GET | `/api/requests` | baku | daftar pengajuan tautan milik pendamping yang login (halaman "Terhubung") |
+| POST | `/api/requests` | baku | kirim pengajuan tautan baru (status `Menunggu`) |
+| DELETE | `/api/requests/{id}` | baku | batalkan pengajuan / putuskan tautan |
 
 Contoh `/api/health`:
 
@@ -1226,6 +1229,70 @@ tunanetra, telepon & alamat diabaikan.
 | `400` | `alamat maksimal 255 karakter` | alamat terlalu panjang |
 | `401` | `sesi tidak valid atau sudah kedaluwarsa` | token tidak ada / kedaluwarsa |
 | `404` | `profil tidak ditemukan` | `user_id` di token tidak ada di tabel `user` |
+
+### `POST /api/device-tokens` dan `DELETE /api/device-tokens` — ✅ sudah ada
+
+Menyimpan / menghapus token perangkat untuk push notification (FCM).
+Keduanya butuh token sesi:
+
+```text
+Authorization: Bearer <session_token>
+```
+
+Badan permintaan `POST`:
+
+```json
+{ "token": "fcm-registration-token...", "platform": "android" }
+```
+
+`platform` hanya menerima `"android"` atau `"ios"`. Token yang sama boleh
+dikirim berkali-kali; baris lama diperbarui, bukan diduplikasi. Balasan
+berhasil (`200`):
+
+```json
+{
+  "success": true,
+  "message": "token perangkat tersimpan",
+  "data": {
+    "token_id": "1bea4938-fc13-48a9-aa12-7f6b7dbd724e",
+    "platform": "android",
+    "upload_at": "2026-11-20T10:32:33Z"
+  }
+}
+```
+
+Badan permintaan `DELETE` cukup berisi token:
+
+```json
+{ "token": "fcm-registration-token..." }
+```
+
+| Kode | Pesan | Sebab |
+|---|---|---|
+| `400` | `token perangkat wajib diisi` | `token` kosong |
+| `400` | `platform harus "android" atau "ios"` | nilai enum salah |
+| `401` | `sesi tidak valid atau sudah kedaluwarsa` | token login tidak ada / kedaluwarsa |
+
+#### Mengaktifkan pengiriman notifikasi
+
+1. Firebase Console → **Project Settings** → **Service accounts** →
+   **Generate new private key**.
+2. Simpan file JSON itu di `backend/service-account.json` (sudah masuk
+   `.gitignore`).
+3. Isi `.env`:
+
+   ```text
+   FIREBASE_CREDENTIALS_FILE=service-account.json
+   ```
+
+Kalau file belum ada, server tetap berjalan; di log muncul
+`[notifikasi] push notification dimatikan` dan endpoint pendaftaran token
+tetap bisa dipakai.
+
+Di sisi Go, pengiriman dilakukan lewat `notification.Service.NotifyUser`
+(otomatis membuang token yang dinyatakan mati oleh FCM). Pemanggilannya
+belum dipasang ke fitur mana pun karena fitur jadwal/permintaan belum ada
+di backend.
 
 ### Direncanakan (M2)
 

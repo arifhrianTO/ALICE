@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "26401679388",
+    "project_id": "alice-3e2f6",
+    "storage_bucket": "alice-3e2f6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:26401679388:android:3b32ce26a2b7b582c257d9",
+        "android_client_info": {
+          "package_name": "com.example.alice_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBCPPImWPEs49If7z9PxCNFf0JVwY4pauI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -42,6 +42,15 @@ type Config struct {
 	GoogleClientID       string // Client ID OAuth 2.0 dari Google Cloud Console
 	FacebookAppID        string // App ID dari Meta for Developers
 	FacebookAppSecret    string // App Secret dari Meta for Developers
+
+	// FirebaseCredentialsFile adalah lokasi file service account Firebase
+	// (JSON) di server. Isinya kunci admin untuk mengirim push
+	// notification lewat FCM.
+	//
+	// Kalau kosong atau filenya tidak ada, fitur notifikasi dimatikan dan
+	// server tetap berjalan — pendaftaran akun tidak boleh ikut mati hanya
+	// karena fitur tambahan ini belum siap.
+	FirebaseCredentialsFile string
 }
 
 // Load merakit konfigurasi dari file .env (kalau ada) dan environment sistem.
@@ -85,19 +94,20 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		AppEnv:               getEnv("APP_ENV", "development"),
-		AppPort:              getEnv("APP_PORT", "8080"),
-		DBHost:               getEnv("DB_HOST", "localhost"),
-		DBPort:               getEnv("DB_PORT", "5432"),
-		DBUser:               getEnv("DB_USER", "app_user"),
-		DBPassword:           getEnv("DB_PASSWORD", ""),
-		DBName:               getEnv("DB_NAME", "db_alice"),
-		DBSSLMode:            getEnv("DB_SSLMODE", "disable"),
-		SessionTTLHours:      ttl,
-		ProfileEncryptionKey: key,
-		GoogleClientID:       getEnv("GOOGLE_CLIENT_ID", ""),
-		FacebookAppID:        getEnv("FACEBOOK_APP_ID", ""),
-		FacebookAppSecret:    getEnv("FACEBOOK_APP_SECRET", ""),
+		AppEnv:                  getEnv("APP_ENV", "development"),
+		AppPort:                 getEnv("APP_PORT", "8080"),
+		DBHost:                  getEnv("DB_HOST", "localhost"),
+		DBPort:                  getEnv("DB_PORT", "5432"),
+		DBUser:                  getEnv("DB_USER", "app_user"),
+		DBPassword:              getEnv("DB_PASSWORD", ""),
+		DBName:                  getEnv("DB_NAME", "db_alice"),
+		DBSSLMode:               getEnv("DB_SSLMODE", "disable"),
+		SessionTTLHours:         ttl,
+		ProfileEncryptionKey:    key,
+		GoogleClientID:          getEnv("GOOGLE_CLIENT_ID", ""),
+		FacebookAppID:           getEnv("FACEBOOK_APP_ID", ""),
+		FacebookAppSecret:       getEnv("FACEBOOK_APP_SECRET", ""),
+		FirebaseCredentialsFile: getEnv("FIREBASE_CREDENTIALS_FILE", "service-account.json"),
 	}
 
 	if cfg.DBUser == "" || cfg.DBName == "" {

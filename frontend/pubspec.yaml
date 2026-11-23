@@ -41,6 +41,8 @@ dependencies:
   latlong2: ^0.10.1
   flutter_tts: ^4.2.5
   google_sign_in: ^6.2.2
+  firebase_core: ^5.2.0
+  firebase_messaging: ^17.1.0
   flutter_facebook_auth: ^7.3.3
   material_ui: ^1.11.1
   speech_to_text: ^7.5.0

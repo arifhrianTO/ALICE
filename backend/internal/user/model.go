@@ -70,6 +70,17 @@ type Profile struct {
 	Address     *string `json:"address,omitempty"`
 }
 
+// Account adalah ringkasan akun untuk kebutuhan daftar.
+//
+// Dipakai halaman "Tautkan Tunanetra" yang hanya perlu menampilkan
+// nama dan email calon tunanetra. Fieldnya sengaja sedikit supaya
+// aplikasi tidak menerima data yang tidak dipakai layar ini.
+type Account struct {
+	UserID string `json:"id"`
+	Name   string `json:"name"`
+	Email  string `json:"email"`
+}
+
 // CreateInput adalah bahan untuk membuat pengguna baru.
 //
 // Kenapa User dan data profil dipisah, bukan ditambahkan ke struct User?
