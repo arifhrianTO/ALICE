@@ -14,12 +14,11 @@ import (
 
 	"alice-backend/internal/assistant"
 	"alice-backend/internal/auth"
-	"alice-backend/internal/connection"
 	"alice-backend/internal/notification"
 	"alice-backend/internal/profile"
 	"alice-backend/internal/request"
 	"alice-backend/internal/shared/config"
-	"alice-backend/internal/shared/crypto"
+	"alice-backend/internal/shared/crypto"	
 	"alice-backend/internal/shared/middleware"
 	"alice-backend/internal/shared/response"
 	"alice-backend/internal/system"
