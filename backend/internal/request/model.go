@@ -25,3 +25,18 @@ type Request struct {
 	RequestAt          time.Time  `json:"request_at"`
 	RespondedAt        *time.Time `json:"responded_at,omitempty"`
 }
+
+// IncomingRequest adalah satu permintaan tautan yang MASUK ke seorang
+// tunanetra (status "Menunggu").
+//
+// Kebalikan dari [Request]: field Companion* di sini berisi data PENDAMPING,
+// karena dialah yang mengajukan tautan. Dipakai halaman/share yang perlu
+// menampilkan "siapa yang ingin menautkan saya".
+type IncomingRequest struct {
+	ID             string    `json:"id"` // request_id, dipakai untuk respond
+	CompanionID    string    `json:"companion_id"`
+	CompanionName  string    `json:"companion_name"`
+	CompanionEmail string    `json:"companion_email"`
+	Status         string    `json:"status"`
+	RequestAt      time.Time `json:"request_at"`
+}

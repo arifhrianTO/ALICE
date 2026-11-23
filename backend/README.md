@@ -35,41 +35,43 @@ Server API untuk aplikasi ALICE. Ditulis dengan bahasa **Go**, memakai database 
 |---|---|
 | Server HTTP | jalan di port dari `.env` (`8080`) |
 | Routing dasar | **Gin** (`github.com/gin-gonic/gin`) |
-| Endpoint | 5 buah: 3 baca + register + login |
-| Middleware | CORS + Recovery + Logger (Gin) |
+| Endpoint | auth, profil, pengajuan tautan, pencarian tunanetra, notifikasi — lihat [bagian 8](#8-daftar-endpoint) |
+| Middleware | CORS + Recovery + Logger (Gin) + Auth (token sesi) |
 | Konfigurasi | `.env` dibaca lewat `godotenv`, divalidasi di `shared/config/` |
 | Koneksi database | `pgxpool` + `Ping`, berhenti jelas kalau DB mati |
 | Makefile | ✅ pengganti `php artisan` |
 | Seeder | ✅ `make seed` (memperbarui akun uji & password bcrypt) |
 | Bentuk balasan API | ✅ `response.Response` untuk endpoint baru |
 | Register & Login | ✅ `POST /api/auth/register` & `POST /api/auth/login` |
-| Data | **data dummy** untuk `/api/tunanetra` (belum dari database) |
+| Pengajuan tautan | ✅ pendamping mengajukan, tunanetra menerima/menolak (`Menunggu` → `Terhubung`/`Ditolak`) |
+| Push notification | ✅ dikirim lewat FCM saat pengajuan dibuat |
+| Data | ✅ seluruhnya dari database, tidak ada lagi data dummy |
 
 ### Belum ada
 
 | Hal | Keterangan |
 |---|---|
 | Middleware auth | ✅ `shared/middleware/auth.go` memeriksa `Authorization: Bearer` |
-| Endpoint yang dilindungi token | ✅ `GET /api/profile`, `PUT /api/profile`; `POST /api/auth/logout` belum |
-| `/api/tunanetra` dari database | masih data dummy |
+| Endpoint yang dilindungi token | ✅ `GET`/`PUT /api/profile`, `/api/requests*`, `/api/tunanetra/*`, `/api/device-tokens` |
+| Data perangkat tunanetra | ❌ lokasi/baterai/suhu di beranda masih diisi contoh (app tunanetra belum mengirimnya) |
 | Penyambungan auth ke Flutter | ✅ `email_login_page.dart` sudah panggil `/api/auth/register` & `/api/auth/login` |
 | Bentuk database di repo | ❌ tidak disimpan (lihat bagian 4) |
 
-**Kesimpulan:** fondasi berdiri, autentikasi inti (daftar & masuk) selesai dan
-teruji. Langkah selanjutnya adalah proteksi endpoint dengan middleware token (M2).
+**Kesimpulan:** fondasi berdiri; autentikasi, pengajuan tautan, dan push
+notification sudah jalan. Yang belum: pengiriman data perangkat dari app
+tunanetra ke server.
 
-### Satu file yang masih kerangka
+### Tidak ada lagi file kerangka
 
-Tinggal `internal/shared/middleware/auth.go`. Isinya baru nama fungsi dan
-komentar `TODO` tentang rencana M2. Sekarang dia selalu menjawab `501`, supaya
-tidak ada endpoint yang dikira sudah terlindungi padahal belum.
-
-Yang **sudah** berisi implementasi penuh:
+Semua berkas inti sudah berisi implementasi penuh, termasuk
+`internal/shared/middleware/auth.go` yang memeriksa token sesi pada setiap
+endpoint terlindungi.
 
 | Berkas | Isi |
 |---|---|
 | `shared/config/config.go` | baca `.env` |
 | `shared/database/postgres.go` | buka connection pool |
+| `shared/middleware/auth.go` | periksa token sesi (`Authorization: Bearer`) |
 | `user/repository.go` | SQL tabel `user` + tabel profilnya |
 | `auth/repository.go` | SQL tabel `session` |
 | `auth/service.go` | aturan bisnis pendaftaran |
@@ -194,20 +196,45 @@ backend/
 │   │   ├── health.go            ← ✅ cek server + database
 │   │   └── hello.go             ← ✅ uji cepat "server hidup?"
 │   │
-│   ├── tunanetra/               ← FITUR (data masih dummy)
-│   │   ├── handler.go           ← ✅ handler HTTP
-│   │   ├── model.go             ← bentuk data yang dikirim ke klien
-│   │   └── data.go              ← SEMENTARA: data dummy, akan dihapus
-│   │
 │   ├── user/                    ← FITUR: tabel "user" + tabel profilnya
 │   │   ├── model.go             ← ✅ cerminan tabel "user"
 │   │   └── repository.go        ← ✅ SQL tabel user, companion, visually_impaired
 │   │
-│   └── auth/                    ← FITUR: daftar, masuk, keluar
-│       ├── model.go             ← ✅ cerminan tabel "session"
-│       ├── repository.go        ← ✅ SQL tabel session
-│       ├── service.go           ← ✅ aturan bisnis: validasi, bcrypt, token
-│       ├── dto.go               ← ✅ bentuk JSON permintaan & balasan
+│   ├── profile/                 ← FITUR: profil pengguna (baca & ubah)
+│   │   ├── service.go           ← ✅ aturan bisnis profil
+│   │   ├── dto.go               ← ✅ bentuk JSON permintaan & balasan
+│   │   └── handler.go           ← ✅ handler HTTP
+│   │
+│   ├── auth/                    ← FITUR: daftar, masuk, keluar
+│   │   ├── model.go             ← ✅ cerminan tabel "session"
+│   │   ├── repository.go        ← ✅ SQL tabel session
+│   │   ├── service.go           ← ✅ aturan bisnis: validasi, bcrypt, token
+│   │   ├── dto.go               ← ✅ bentuk JSON permintaan & balasan
+│   │   └── handler.go           ← ✅ handler HTTP
+│   │
+│   ├── tunanetra/               ← FITUR: daftar akun & pencarian tunanetra
+│   │   ├── handler.go           ← ✅ handler daftar akun tunanetra
+│   │   ├── repository.go        ← ✅ SQL pencarian tunanetra
+│   │   ├── service.go           ← ✅ aturan bisnis daftar akun
+│   │   └── search_handler.go    ← ✅ handler pencarian tunanetra
+│   │
+│   ├── request/                 ← FITUR: pengajuan tautan pendamping ↔ tunanetra
+│   │   ├── model.go             ← ✅ bentuk pengajuan + permintaan masuk
+│   │   ├── repository.go        ← ✅ SQL tabel "request"
+│   │   ├── service.go           ← ✅ aturan bisnis + kirim notifikasi
+│   │   ├── dto.go               ← ✅ bentuk JSON permintaan & balasan
+│   │   └── handler.go           ← ✅ handler HTTP
+│   │
+│   ├── notification/            ← FITUR: push notification (FCM)
+│   │   ├── model.go             ← ✅ cerminan tabel "device_token"
+│   │   ├── repository.go        ← ✅ SQL tabel device_token
+│   │   ├── service.go           ← ✅ aturan bisnis + kirim ke perangkat
+│   │   ├── fcm.go               ← ✅ pengirim Firebase Cloud Messaging
+│   │   ├── dto.go               ← ✅ bentuk JSON permintaan & balasan
+│   │   └── handler.go           ← ✅ handler HTTP
+│   │
+│   └── assistant/               ← FITUR: tanya-jawab asisten
+│       ├── assistant.go         ← ✅ logika asisten
 │       └── handler.go           ← ✅ handler HTTP
 │
 ├── Makefile                     ← ✅ pengganti `php artisan`
@@ -402,9 +429,11 @@ Fitur yang ada sekarang:
 
 | Fitur | Isi | Status |
 |---|---|---|
-| `tunanetra/` | handler + model + data dummy | ✅ jalan (data masih dummy) |
-| `user/` | cerminan tabel `user` + kontrak SQL | KERANGKA |
-| `auth/` | logika daftar & masuk | KERANGKA |
+| `user/` | cerminan tabel `user` + kontrak SQL | ✅ jalan |
+| `auth/` | logika daftar & masuk | ✅ jalan |
+| `tunanetra/` | daftar akun & pencarian tunanetra | ✅ jalan |
+| `request/` | pengajuan tautan + permintaan masuk | ✅ jalan |
+| `notification/` | token perangkat + pengiriman FCM | ✅ jalan |
 
 **Kenapa `user/` terpisah dari `auth/`?** Karena keduanya menjawab pertanyaan
 berbeda: `user/` soal *bentuk dan penyimpanan* data pengguna, `auth/` soal
@@ -553,17 +582,6 @@ Go **tidak memaksa apa pun** — kamu yang memilih, dan konsekuensinya kamu yang
 menanggung. Itu sebabnya di Go ada banyak "cara yang benar", tergantung ukuran
 dan umur project.
 
-### `internal/tunanetra/data.go` — data dummy (SEMENTARA)
-
-Data yang ditulis keras di kode, sebagai pengganti database sementara supaya
-frontend bisa dikerjakan lebih dulu.
-
-Karena sudah berada di dalam fiturnya, file ini **tidak perlu import apa pun** —
-`handler.go`, `model.go`, dan `data.go` satu package.
-
-**File ini akan dihapus** begitu `tunanetra/repository.go` bisa mengambil data
-asli. Aturannya: hapus saat penggantinya sudah siap, jangan sebelum.
-
 ### Inspirasi dari luar
 
 Susunan ini tidak dikarang sendiri. Empat sumber yang paling berpengaruh:
@@ -674,26 +692,14 @@ jadi hasilnya bisa dipercaya untuk pemantauan.
 | `func Hello(c *gin.Context)` | balas `{"message": "...", "app": "ALICE"}` |
 | bentuk balasan | `response.InfoResponse` — bentuk **lama**, sengaja dipertahankan |
 
-#### `internal/tunanetra/handler.go` — ✅ sudah berfungsi (data masih dummy)
+#### `internal/tunanetra/handler.go` — ✅ sudah berfungsi
 
 | Isi | Keterangan |
 |---|---|
-| `func List(c *gin.Context)` | balas daftar tunanetra sebagai **array polos**, bukan amplop `Response` |
+| `func (h *Handler) ListAccounts(c *gin.Context)` | balas daftar akun tunanetra asli (halaman "Tautkan Tunanetra") |
+| `func (h *SearchHandler) Search(c *gin.Context)` | balas hasil pencarian tunanetra dari database (`?q=`) |
 
-⚠️ Bentuk array polos ini **wajib dipertahankan**: aplikasi Flutter sudah
-memakainya dan membaca hasilnya langsung sebagai `List<dynamic>`. Kalau dibungkus
-jadi `{"success": true, "data": [...]}`, halaman "tunanetra location" di aplikasi
-akan rusak.
-
-#### `internal/tunanetra/model.go` dan `data.go` — SEMENTARA
-
-| Isi | Keterangan |
-|---|---|
-| `type Tunanetra struct` | bentuk satu baris data tunanetra yang dikirim ke klien |
-| `var DummyTunanetra` | dua baris data tulis-keras (dummy), pengganti database sementara |
-
-Keduanya akan **dihapus/diganti** begitu `tunanetra/` mengambil data asli dari
-database.
+Semua balasan di fitur ini memakai amplop baku `response.Response`.
 
 #### `internal/shared/response/response.go` — ✅ sudah berfungsi
 
@@ -1043,13 +1049,29 @@ saja**, dan mudah diperiksa langsung lewat `psql`.
 | Method | Path | Bentuk balasan | Keterangan |
 |---|---|---|---|
 | GET | `/api/hello` | lama (`message`, `app`) | uji koneksi backend |
-| GET | `/api/tunanetra` | **array langsung** (dipakai Flutter) | daftar tunanetra (**data dummy**) |
 | GET | `/api/health` | baku (`success`, `message`, `data`) | status server + database |
+| POST | `/api/assistant/ask` | baku | tanya-jawab asisten |
 | POST | `/api/auth/register` | baku | daftar akun baru, langsung dapat token |
 | POST | `/api/auth/login` | baku | masuk dengan email & password, menerima token |
-| GET | `/api/requests` | baku | daftar pengajuan tautan milik pendamping yang login (halaman "Terhubung") |
+| POST | `/api/auth/google` | baku | masuk/daftar lewat akun Google |
+| POST | `/api/auth/facebook` | baku | masuk/daftar lewat akun Facebook |
+
+Endpoint berikut **butuh** header `Authorization: Bearer <token>`:
+
+| Method | Path | Bentuk balasan | Keterangan |
+|---|---|---|---|
+| POST | `/api/auth/logout` | baku | akhiri sesi |
+| GET | `/api/profile` | baku | profil pengguna yang sedang login |
+| PUT | `/api/profile` | baku | ubah profil pengguna yang sedang login |
+| GET | `/api/tunanetra/accounts` | baku | daftar akun tunanetra (halaman "Tautkan") |
+| GET | `/api/tunanetra/search?q=` | baku | cari tunanetra berdasarkan kata kunci |
+| GET | `/api/requests` | baku | pengajuan tautan milik pendamping (halaman "Terhubung") |
 | POST | `/api/requests` | baku | kirim pengajuan tautan baru (status `Menunggu`) |
 | DELETE | `/api/requests/{id}` | baku | batalkan pengajuan / putuskan tautan |
+| GET | `/api/requests/incoming` | baku | permintaan masuk milik tunanetra yang login |
+| PUT | `/api/requests/{id}/respond` | baku | tunanetra menerima (`Terhubung`) / menolak (`Ditolak`) |
+| POST | `/api/device-tokens` | baku | daftarkan token perangkat untuk push notification |
+| DELETE | `/api/device-tokens` | baku | hapus token perangkat (saat logout) |
 
 Contoh `/api/health`:
 
@@ -1349,7 +1371,7 @@ Kalau database mati atau namanya salah, aplikasi **berhenti** dengan pesan jelas
 
 ```bash
 curl localhost:8080/api/hello
-curl localhost:8080/api/tunanetra
+curl localhost:8080/api/health
 ```
 
 ### Melihat isi database

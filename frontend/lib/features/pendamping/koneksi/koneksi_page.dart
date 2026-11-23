@@ -103,6 +103,25 @@ class KoneksiPageState extends State<KoneksiPage> {
     }
   }
 
+  /// Memuat ulang tanpa indikator loading penuh.
+  ///
+  /// Dipakai untuk penyegaran berkala selagi tab ini terbuka, supaya status
+  /// (misalnya "Menunggu" yang berubah menjadi "Terhubung" setelah tunanetra
+  /// menyetujui) ikut tampil tanpa harus menarik layar. Kalau gagal, data
+  /// lama dibiarkan tetap tampil.
+  Future<void> silentRefresh() async {
+    try {
+      final list = await ConnectionService.fetchAll();
+      if (!mounted) return;
+      setState(() {
+        _items = list;
+        _error = null;
+      });
+    } catch (_) {
+      // Penyegaran latar gagal: cukup diamkan.
+    }
+  }
+
   Future<void> _confirmDelete(ConnectionRequest item) async {
     final ok = await showDisconnectDialog(
       context,

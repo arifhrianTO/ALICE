@@ -2,6 +2,7 @@ import 'package:material_ui/material_ui.dart';
 
 import '../../../core/colors.dart';
 import 'tunanetra_location.dart';
+import 'widgets/beranda_empty_state.dart';
 import 'widgets/beranda_info_cards.dart';
 import 'widgets/beranda_map_card.dart';
 import 'widgets/profile_dropdown.dart';
@@ -10,13 +11,17 @@ import 'widgets/profile_dropdown.dart';
 //  HALAMAN BERANDA
 // =====================================================================
 class BerandaPage extends StatefulWidget {
-  const BerandaPage({super.key});
+  /// Aksi saat pengguna ingin menautkan tunanetra dari keadaan kosong.
+  /// Disediakan oleh HomeShell supaya alurnya sama dengan tombol "+".
+  final VoidCallback? onTautkan;
+
+  const BerandaPage({super.key, this.onTautkan});
 
   @override
-  State<BerandaPage> createState() => _BerandaPageState();
+  State<BerandaPage> createState() => BerandaPageState();
 }
 
-class _BerandaPageState extends State<BerandaPage> {
+class BerandaPageState extends State<BerandaPage> {
   late Future<List<TunanetraLocation>> _tunanetraFuture;
   int _selectedIndex = 0;
 
@@ -26,13 +31,22 @@ class _BerandaPageState extends State<BerandaPage> {
     _loadData();
   }
 
+  /// Memuat ulang daftar tunanetra terhubung.
+  ///
+  /// Dipanggil saat tab beranda dibuka lagi, supaya tautan yang baru
+  /// diterima (status "Terhubung") langsung ikut muncul di dropdown.
+  void refresh() {
+    setState(_loadData);
+  }
+
   void _loadData() {
     _tunanetraFuture = TunanetraLocationService.fetchLinkedTunanetra()
         .catchError((error) {
       debugPrint(
-        'Gagal memuat tunanetra dari backend ($error). Menggunakan data default.',
+        'Gagal memuat tunanetra terhubung dari backend ($error). '
+        'Menampilkan daftar kosong.',
       );
-      return TunanetraLocation.defaultList;
+      return <TunanetraLocation>[];
     });
   }
 
@@ -93,21 +107,40 @@ class _BerandaPageState extends State<BerandaPage> {
             );
           }
 
-          final list = snapshot.data ?? TunanetraLocation.defaultList;
-          final safeIndex =
-              _selectedIndex.clamp(0, list.isEmpty ? 0 : list.length - 1);
-          final currentTunanetra = list.isEmpty
-              ? const TunanetraLocation(
-                  id: '',
-                  name: 'Tidak ada data',
-                  email: '',
-                  latitude: 1.1301,
-                  longitude: 104.0529,
-                  address: '-',
-                  battery: '0%',
-                  temperature: '0°C',
-                )
-              : list[safeIndex];
+          final list = snapshot.data ?? const <TunanetraLocation>[];
+
+          // Keadaan kosong: belum ada tunanetra berstatus "Terhubung".
+          // Tampilkan ajakan menautkan, bukan peta dan kartu data kosong.
+          if (list.isEmpty) {
+            return SingleChildScrollView(
+              physics: const ClampingScrollPhysics(),
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(left: 4, bottom: 14),
+                    child: Text(
+                      'Beranda',
+                      style: TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: kTextPurple,
+                      ),
+                    ),
+                  ),
+                  EmptyTunanetraDropdown(onTap: widget.onTautkan),
+                  const SizedBox(height: 14),
+                  const EmptyTunanetraPlaceholder(),
+                  const SizedBox(height: 28),
+                  TautkanTunanetraButton(onTap: widget.onTautkan),
+                ],
+              ),
+            );
+          }
+
+          final safeIndex = _selectedIndex.clamp(0, list.length - 1);
+          final currentTunanetra = list[safeIndex];
 
           return SingleChildScrollView(
             physics: const ClampingScrollPhysics(),

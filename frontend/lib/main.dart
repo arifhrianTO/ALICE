@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
@@ -76,12 +78,21 @@ class HomeShell extends StatefulWidget {
   State<HomeShell> createState() => _HomeShellState();
 }
 
-class _HomeShellState extends State<HomeShell> {
+class _HomeShellState extends State<HomeShell> with WidgetsBindingObserver {
   int _index = 0;
 
   // Kunci ke state tab "Terhubung" supaya bisa disegarkan setelah
   // pendamping selesai menautkan tunanetra baru.
   final GlobalKey<KoneksiPageState> _koneksiKey = GlobalKey<KoneksiPageState>();
+
+  // Kunci ke state tab "Beranda" supaya daftar tunanetra terhubung ikut
+  // disegarkan saat tab ini dibuka lagi (mis. setelah menerima tautan baru).
+  final GlobalKey<BerandaPageState> _berandaKey = GlobalKey<BerandaPageState>();
+
+  /// Menyegarkan tab "Terhubung" secara berkala selagi tab itu terbuka.
+  /// Dengan begitu perubahan status (mis. tunanetra menyetujui tautan dari
+  /// perangkatnya) muncul sendiri tanpa perlu menarik layar.
+  Timer? _koneksiPollTimer;
 
   Future<void> _openTautkan() async {
     final added = await Navigator.of(context).push<bool>(
@@ -89,7 +100,42 @@ class _HomeShellState extends State<HomeShell> {
     );
     if (added == true) {
       _koneksiKey.currentState?.refresh();
+      _berandaKey.currentState?.refresh();
     }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _koneksiPollTimer = Timer.periodic(const Duration(seconds: 8), (_) {
+      if (!mounted || _index != 1) return;
+      _koneksiKey.currentState?.silentRefresh();
+    });
+  }
+
+  @override
+  void dispose() {
+    _koneksiPollTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    // Setelah kembali ke aplikasi, status tautan bisa saja berubah (misalnya
+    // tunanetra baru menyetujui dari perangkatnya). Segarkan tab yang aktif.
+    if (_index == 0) _berandaKey.currentState?.refresh();
+    if (_index == 1) _koneksiKey.currentState?.refresh();
+  }
+
+  void _onTabTapped(int i) {
+    setState(() => _index = i);
+    // Membuka kembali sebuah tab = kesempatan menyegarkan datanya, karena
+    // status bisa saja berubah dari perangkat lain.
+    if (i == 0) _berandaKey.currentState?.refresh();
+    if (i == 1) _koneksiKey.currentState?.refresh();
   }
 
   @override
@@ -103,7 +149,7 @@ class _HomeShellState extends State<HomeShell> {
               child: IndexedStack(
                 index: _index,
                 children: [
-                  const BerandaPage(),
+                  BerandaPage(key: _berandaKey, onTautkan: _openTautkan),
                   KoneksiPage(key: _koneksiKey),
                   const SizedBox.shrink(),
                   const JadwalPage(),
@@ -117,7 +163,7 @@ class _HomeShellState extends State<HomeShell> {
             ),
             AppBottomBar(
               selectedIndex: _index,
-              onTap: (i) => setState(() => _index = i),
+              onTap: _onTabTapped,
               onAdd: _openTautkan,
             ),
           ],

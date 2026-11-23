@@ -14,7 +14,6 @@ import (
 
 	"alice-backend/internal/assistant"
 	"alice-backend/internal/auth"
-	"alice-backend/internal/connection"
 	"alice-backend/internal/notification"
 	"alice-backend/internal/profile"
 	"alice-backend/internal/request"
@@ -134,7 +133,7 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 	tunanetraService := tunanetra.NewService(userRepo)
 	tunanetraHandler := tunanetra.NewHandler(tunanetraService)
 	requestRepo := request.NewRepository(db)
-	requestService := request.NewService(requestRepo, userRepo)
+	requestService := request.NewService(requestRepo, userRepo, notificationService)
 	requestHandler := request.NewHandler(requestService)
 	notificationHandler := notification.NewHandler(notificationService)
 	health := system.NewHealthHandler(db)
@@ -142,8 +141,6 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 
 	tunanetraRepo := tunanetra.NewRepository(db)
 	tunanetraSearch := tunanetra.NewSearchHandler(tunanetraRepo)
-	connectionRepo := connection.NewRepository(db)
-	connectionHandler := connection.NewHandler(connectionRepo)
 
 	// ---------------------------------------------------------------
 	// Pendaftaran endpoint
@@ -154,7 +151,6 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 		// --- sudah ada, jangan diubah bentuk balasannya ---
 		// Aplikasi Flutter sudah bergantung pada bentuk lama ini.
 		api.GET("/hello", system.Hello)
-		api.GET("/tunanetra", tunanetra.List)
 		api.POST("/assistant/ask", assistantHandler.Handle)
 
 		// --- M0: fondasi ---
@@ -176,17 +172,21 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 			protected.PUT("/profile", profileHandler.Update)
 
 			// --- Daftar akun tunanetra asli (halaman "Tautkan Tunanetra") ---
-			// Dibuat terpisah dari `GET /api/tunanetra` yang masih dipakai
-			// halaman peta, supaya mengubahnya tidak merusak halaman itu.
 			protected.GET("/tunanetra/accounts", tunanetraHandler.ListAccounts)
 
 			// --- Pengajuan tautan (halaman "Terhubung") ---
 			// Pendamping mengirim pengajuan (POST), melihat statusnya (GET),
 			// dan bisa membatalkan/memutusnya (DELETE). Semua difilter atas
 			// nama pendamping yang sedang login.
+			//
+			// Dua endpoint terakhir dipakai sisi tunanetra: melihat
+			// permintaan yang masuk (incoming) dan menerima/menolaknya
+			// (respond).
 			protected.GET("/requests", requestHandler.List)
 			protected.POST("/requests", requestHandler.Create)
 			protected.DELETE("/requests/:id", requestHandler.Delete)
+			protected.GET("/requests/incoming", requestHandler.Incoming)
+			protected.PUT("/requests/:id/respond", requestHandler.Respond)
 
 			// --- Token perangkat untuk push notification ---
 			// Terlindungi token login: hanya pemilik sesi yang boleh
@@ -194,15 +194,8 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 			protected.POST("/device-tokens", notificationHandler.RegisterToken)
 			protected.DELETE("/device-tokens", notificationHandler.DeleteToken)
 
-			// --- Endpoint dari main: pencarian & koneksi tunanetra ---
-			// daftar tunanetra asli dari database (untuk halaman Tautkan)
+			// --- Pencarian tunanetra asli dari database (halaman Tautkan) ---
 			protected.GET("/tunanetra/search", tunanetraSearch.Search)
-
-			protected.GET("/connections", connectionHandler.List)
-			protected.POST("/connections", connectionHandler.Create)
-			protected.GET("/connections/incoming", connectionHandler.Incoming)
-			protected.PUT("/connections/:id/respond", connectionHandler.Respond)
-			protected.DELETE("/connections/:id", connectionHandler.Delete)
 		}
 	}
 

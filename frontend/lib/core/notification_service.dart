@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -8,10 +10,11 @@ import 'api_config.dart';
 
 /// Pengurus push notification (Firebase Cloud Messaging).
 ///
-/// Tugasnya cuma tiga:
+/// Tugasnya empat:
 ///  1. minta izin notifikasi ke sistem operasi
 ///  2. ambil token perangkat dari Firebase
 ///  3. kirim token itu ke backend supaya server bisa mengirim pesan
+///  4. teruskan pesan yang masuk ke bagian aplikasi yang peduli
 ///
 /// Semua kegagalan ditangkap dan dicatat, TIDAK dilempar ke atas. Fitur
 /// notifikasi adalah tambahan: kalau gagal (misalnya HP tanpa Google Play
@@ -20,6 +23,32 @@ class NotificationService {
   NotificationService._();
 
   static bool _ready = false;
+
+  /// Aliran data notifikasi yang datang selagi aplikasi hidup.
+  ///
+  /// Isinya hanya bagian `data` (bukan judul/isi tampilan), karena data
+  /// inilah yang membawa penanda jenis pesan dan id terkait. Halaman yang
+  /// peduli — misalnya halaman suara tunanetra — mendengarkan aliran ini
+  /// supaya bisa langsung bereaksi begitu pesan tiba.
+  static final StreamController<Map<String, String>> _messagesController =
+      StreamController<Map<String, String>>.broadcast();
+
+  static Stream<Map<String, String>> get messages => _messagesController.stream;
+
+  /// Data notifikasi yang MEMBUKA aplikasi dari kondisi benar-benar tertutup.
+  ///
+  /// Disimpan sementara karena saat itu halaman tujuan belum dibangun, jadi
+  /// belum ada yang mendengarkan aliran [messages]. Halaman yang siap
+  /// memanggil [consumePendingMessage] untuk mengambilnya.
+  static Map<String, String>? _pendingMessage;
+
+  /// Mengambil (sekali) data notifikasi yang menunggu, lalu mengosongkannya
+  /// supaya tidak diproses dua kali. Mengembalikan null kalau tidak ada.
+  static Map<String, String>? consumePendingMessage() {
+    final pending = _pendingMessage;
+    _pendingMessage = null;
+    return pending;
+  }
 
   /// Dipanggil sekali saat aplikasi mulai.
   static Future<void> init() async {
@@ -52,9 +81,38 @@ class NotificationService {
       // token. Jadi untuk saat ini API lama tetap dipakai.
       // ignore: deprecated_member_use
       FirebaseMessaging.instance.onTokenRefresh.listen(_sendToBackend);
+
+      // (a) Pesan yang tiba selagi aplikasi di depan.
+      //
+      // FCM TIDAK menampilkan apa pun sendiri di mode ini; kalau tidak
+      // didengarkan, pesannya hilang tanpa jejak. Di sini pesannya
+      // diteruskan ke halaman suara tunanetra.
+      FirebaseMessaging.onMessage.listen(_handleIncoming);
+
+      // (b) Pesan yang diketuk dari bilah notifikasi saat aplikasi masih
+      // hidup di latar belakang. Aplikasi dilanjutkan, lalu pesannya
+      // diteruskan seperti di atas.
+      FirebaseMessaging.onMessageOpenedApp.listen(_handleIncoming);
+
+      // (c) Pesan yang MEMBUKA aplikasi dari kondisi tertutup total.
+      // getInitialMessage() mengembalikan pesan itu satu kali saja.
+      final initial = await FirebaseMessaging.instance.getInitialMessage();
+      if (initial != null) {
+        _pendingMessage = Map<String, String>.from(initial.data);
+        _handleIncoming(initial);
+      }
     } catch (e) {
       debugPrint('[notifikasi] inisialisasi gagal: $e');
     }
+  }
+
+  /// Meneruskan data satu pesan yang masuk ke para pendengar.
+  ///
+  /// Nilai data FCM selalu berupa teks, jadi konversinya aman.
+  static void _handleIncoming(RemoteMessage message) {
+    final data = Map<String, String>.from(message.data);
+    debugPrint('[notifikasi] pesan masuk: $data');
+    _messagesController.add(data);
   }
 
   /// Mendaftarkan perangkat yang sedang dipakai ke akun yang sedang login.
