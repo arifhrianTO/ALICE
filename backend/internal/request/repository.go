@@ -41,6 +41,17 @@ type Repository interface {
 	// Delete membuang satu pengajuan milik pendamping tersebut.
 	// Mengembalikan ErrNotFound kalau tidak ada baris yang cocok.
 	Delete(ctx context.Context, companionID, requestID string) error
+
+	// ListIncoming mengambil semua pengajuan berstatus "Menunggu" untuk
+	// seorang tunanetra, terbaru lebih dulu, sudah digabung dengan nama &
+	// email pendamping pengaju.
+	ListIncoming(ctx context.Context, tunanetraID string) ([]IncomingRequest, error)
+
+	// Respond menandai pengajuan sebagai "Terhubung" (accept true) atau
+	// "Ditolak" (accept false). Hanya baris milik tunanetra tersebut dan
+	// yang masih berstatus "Menunggu" yang boleh berubah. Mengembalikan
+	// ErrNotFound kalau tidak ada baris yang cocok.
+	Respond(ctx context.Context, requestID, tunanetraID string, accept bool) error
 }
 
 type postgresRepository struct {
@@ -93,6 +104,49 @@ func (r *postgresRepository) ListByCompanion(ctx context.Context, companionID st
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("daftar pengajuan pendamping: %w", err)
+	}
+
+	return items, nil
+}
+
+// listIncomingQuery mengambil pengajuan masuk milik seorang tunanetra.
+//
+// Nama & email di sini milik PENDAMPING (c), karena dialah pengajunya —
+// kebalikan dari `kolomSelect` yang mengambil data tunanetra.
+const listIncomingQuery = `
+	SELECT r.request_id, r.companion_id, c.name, COALESCE(c.email, ''),
+	       r.status::text, r.request_at
+	FROM request r
+	JOIN "user" c ON c.user_id = r.companion_id
+	WHERE r.visually_impaired_id = $1
+	  AND r.status = 'Menunggu'
+	ORDER BY r.request_at DESC`
+
+// ListIncoming mengambil semua pengajuan "Menunggu" untuk seorang tunanetra.
+func (r *postgresRepository) ListIncoming(ctx context.Context, tunanetraID string) ([]IncomingRequest, error) {
+	rows, err := r.pool.Query(ctx, listIncomingQuery, tunanetraID)
+	if err != nil {
+		return nil, fmt.Errorf("daftar permintaan masuk: %w", err)
+	}
+	defer rows.Close()
+
+	var items []IncomingRequest
+	for rows.Next() {
+		var it IncomingRequest
+		if err := rows.Scan(
+			&it.ID,
+			&it.CompanionID,
+			&it.CompanionName,
+			&it.CompanionEmail,
+			&it.Status,
+			&it.RequestAt,
+		); err != nil {
+			return nil, fmt.Errorf("baca permintaan masuk: %w", err)
+		}
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("baca permintaan masuk: %w", err)
 	}
 
 	return items, nil
@@ -161,4 +215,34 @@ func (r *postgresRepository) Delete(ctx context.Context, companionID, requestID 
 	}
 
 	return nil
+}
+
+// Respond menandai satu pengajuan sebagai "Terhubung" atau "Ditolak".
+//
+// Filter `visually_impaired_id` memastikan tunanetra hanya bisa menjawab
+// pengajuan yang memang ditujukan kepadanya, dan `status = 'Menunggu'`
+// mencegah menjawab ulang pengajuan yang sudah dijawab.
+func (r *postgresRepository) Respond(ctx context.Context, requestID, tunanetraID string, accept bool) error {
+	status := StatusDitolak
+	if accept {
+		status = StatusTerhubung
+	}
+
+	const query = `
+		UPDATE request
+		SET status = $3::request_status, responded_at = CURRENT_TIMESTAMP
+		WHERE request_id = $1
+		  AND visually_impaired_id = $2
+		  AND status = 'Menunggu'`
+
+	return database.WithActor(ctx, r.pool, tunanetraID, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, query, requestID, tunanetraID, status)
+		if err != nil {
+			return fmt.Errorf("jawab pengajuan: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }

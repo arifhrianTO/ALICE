@@ -17,15 +17,14 @@ import (
 	"alice-backend/internal/notification"
 	"alice-backend/internal/profile"
 	"alice-backend/internal/request"
+	"alice-backend/internal/schedule"
 	"alice-backend/internal/shared/config"
-	"alice-backend/internal/shared/crypto"	
+	"alice-backend/internal/shared/crypto"
 	"alice-backend/internal/shared/middleware"
 	"alice-backend/internal/shared/response"
 	"alice-backend/internal/system"
 	"alice-backend/internal/tunanetra"
 	"alice-backend/internal/user"
-	"alice-backend/internal/connection"
-	"alice-backend/internal/schedule"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -135,7 +134,7 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 	tunanetraService := tunanetra.NewService(userRepo)
 	tunanetraHandler := tunanetra.NewHandler(tunanetraService)
 	requestRepo := request.NewRepository(db)
-	requestService := request.NewService(requestRepo, userRepo)
+	requestService := request.NewService(requestRepo, userRepo, notificationService)
 	requestHandler := request.NewHandler(requestService)
 	notificationHandler := notification.NewHandler(notificationService)
 	health := system.NewHealthHandler(db)
@@ -143,8 +142,6 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 
 	tunanetraRepo := tunanetra.NewRepository(db)
 	tunanetraSearch := tunanetra.NewSearchHandler(tunanetraRepo)
-	connectionRepo := connection.NewRepository(db)
-	connectionHandler := connection.NewHandler(connectionRepo)
 	scheduleRepo := schedule.NewRepository(db)
 	scheduleHandler := schedule.NewHandler(scheduleRepo)
 
@@ -157,7 +154,6 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 		// --- sudah ada, jangan diubah bentuk balasannya ---
 		// Aplikasi Flutter sudah bergantung pada bentuk lama ini.
 		api.GET("/hello", system.Hello)
-		api.GET("/tunanetra", tunanetra.List)
 		api.POST("/assistant/ask", assistantHandler.Handle)
 
 		// --- M0: fondasi ---
@@ -179,17 +175,21 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 			protected.PUT("/profile", profileHandler.Update)
 
 			// --- Daftar akun tunanetra asli (halaman "Tautkan Tunanetra") ---
-			// Dibuat terpisah dari `GET /api/tunanetra` yang masih dipakai
-			// halaman peta, supaya mengubahnya tidak merusak halaman itu.
 			protected.GET("/tunanetra/accounts", tunanetraHandler.ListAccounts)
 
 			// --- Pengajuan tautan (halaman "Terhubung") ---
 			// Pendamping mengirim pengajuan (POST), melihat statusnya (GET),
 			// dan bisa membatalkan/memutusnya (DELETE). Semua difilter atas
 			// nama pendamping yang sedang login.
+			//
+			// Dua endpoint terakhir dipakai sisi tunanetra: melihat
+			// permintaan yang masuk (incoming) dan menerima/menolaknya
+			// (respond).
 			protected.GET("/requests", requestHandler.List)
 			protected.POST("/requests", requestHandler.Create)
 			protected.DELETE("/requests/:id", requestHandler.Delete)
+			protected.GET("/requests/incoming", requestHandler.Incoming)
+			protected.PUT("/requests/:id/respond", requestHandler.Respond)
 
 			// --- Token perangkat untuk push notification ---
 			// Terlindungi token login: hanya pemilik sesi yang boleh
@@ -197,15 +197,8 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 			protected.POST("/device-tokens", notificationHandler.RegisterToken)
 			protected.DELETE("/device-tokens", notificationHandler.DeleteToken)
 
-			// --- Endpoint dari main: pencarian & koneksi tunanetra ---
-			// daftar tunanetra asli dari database (untuk halaman Tautkan)
+			// --- Pencarian tunanetra asli dari database (halaman Tautkan) ---
 			protected.GET("/tunanetra/search", tunanetraSearch.Search)
-
-			protected.GET("/connections", connectionHandler.List)
-			protected.POST("/connections", connectionHandler.Create)
-			protected.GET("/connections/incoming", connectionHandler.Incoming)
-			protected.PUT("/connections/:id/respond", connectionHandler.Respond)
-			protected.DELETE("/connections/:id", connectionHandler.Delete)
 
 			protected.GET("/schedules", scheduleHandler.ListSchedules)
 			protected.GET("/schedule-requests", scheduleHandler.ListRequests)
@@ -213,7 +206,7 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 			protected.GET("/schedule-requests/incoming", scheduleHandler.Incoming)
 			protected.PUT("/schedule-requests/:id/respond", scheduleHandler.Respond)
 			protected.DELETE("/schedule-requests/:id", scheduleHandler.CancelRequest)
-			
+
 		}
 	}
 

@@ -1,9 +1,15 @@
 import 'dart:convert';
+
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'api_config.dart';
 
 /// Satu baris koneksi (tabel `request`) milik pendamping yang login.
+///
+/// Dipakai lintas fitur — misalnya halaman Jadwal memakainya untuk memilih
+/// tunanetra yang sudah "Terhubung". Halaman "Terhubung" sendiri memakai
+/// `features/pendamping/koneksi/koneksi_data.dart`.
 class ConnectionRecord {
   final String id; // request_id
   final String tunanetraId;
@@ -40,6 +46,7 @@ class ConnectionRecord {
   }
 }
 
+/// Pembacaan daftar pengajuan tautan milik pendamping yang login.
 class ConnectionService {
   static Future<Map<String, String>> _headers() async {
     final prefs = await SharedPreferences.getInstance();
@@ -65,9 +72,12 @@ class ConnectionService {
     }
   }
 
-  /// GET /api/connections
+  /// GET /api/requests
+  ///
+  /// Endpoint lama `/api/connections` sudah tidak dipakai; backend kini
+  /// memakai `/api/requests`.
   static Future<List<ConnectionRecord>> fetchConnections() async {
-    final uri = Uri.parse('${ApiConfig.baseUrl}/api/connections');
+    final uri = Uri.parse('${ApiConfig.baseUrl}/api/requests');
     final res = await http
         .get(uri, headers: await _headers())
         .timeout(const Duration(seconds: 8));
@@ -77,27 +87,5 @@ class ConnectionService {
     return data
         .map((e) => ConnectionRecord.fromJson(e as Map<String, dynamic>))
         .toList();
-  }
-
-  /// POST /api/connections  (dipakai tombol kirim di halaman Tautkan)
-  static Future<void> sendRequest(String tunanetraId) async {
-    final uri = Uri.parse('${ApiConfig.baseUrl}/api/connections');
-    final res = await http
-        .post(
-          uri,
-          headers: await _headers(),
-          body: jsonEncode({'tunanetra_id': tunanetraId}),
-        )
-        .timeout(const Duration(seconds: 8));
-    _check(res, _decode(res));
-  }
-
-  /// DELETE /api/connections/:id  (putuskan tautan / batalkan permintaan)
-  static Future<void> deleteConnection(String id) async {
-    final uri = Uri.parse('${ApiConfig.baseUrl}/api/connections/$id');
-    final res = await http
-        .delete(uri, headers: await _headers())
-        .timeout(const Duration(seconds: 8));
-    _check(res, _decode(res));
   }
 }

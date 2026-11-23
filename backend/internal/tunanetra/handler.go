@@ -21,28 +21,10 @@ func NewHandler(svc *Service) *Handler {
 	return &Handler{svc: svc}
 }
 
-// List mengirim daftar tunanetra. Untuk sekarang datanya MASIH DUMMY
-// (ditulis di `internal/tunanetra/data.go`), belum dari database.
-//
-// ⚠️ Bentuk balasannya sengaja TIDAK diubah menjadi `response.Response`.
-// Aplikasi Flutter sudah memakainya dan membaca hasilnya sebagai array
-// langsung:
-//
-//	final List<dynamic> list = jsonDecode(response.body) as List<dynamic>;
-//
-// Kalau dibungkus menjadi {"success": true, "data": [...]}, baris itu
-// akan gagal dan halaman "tunanetra location" di aplikasi ikut rusak.
-// Saat nanti data diambil dari database, bentuk luar array-nya dipertahankan.
-func List(c *gin.Context) {
-	c.JSON(http.StatusOK, DummyTunanetra)
-}
-
 // ListAccounts melayani `GET /api/tunanetra/accounts`.
 //
-// Berbeda dengan List di atas, endpoint ini mengembalikan akun tunanetra
-// ASLI dari database untuk halaman "Tautkan Tunanetra". Karena endpointnya
-// baru dan belum ada klien lama, balasannya memakai bentuk baku
-// response.Response.
+// Endpoint ini mengembalikan akun tunanetra ASLI dari database untuk halaman
+// "Tautkan Tunanetra". Balasannya memakai bentuk baku response.Response.
 func (h *Handler) ListAccounts(c *gin.Context) {
 	accounts, err := h.svc.ListAccounts(c.Request.Context())
 	if err != nil {

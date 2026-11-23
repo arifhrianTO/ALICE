@@ -13,6 +13,7 @@ import '../../core/tts_service.dart';
 import '../auth/role_page.dart';
 import '../pendamping/jadwal/jadwal_data.dart';
 import 'assistant_service.dart';
+import 'incoming_request_data.dart';
 import 'widgets/chat_bubble.dart';
 import 'widgets/mic_button.dart';
 
@@ -23,7 +24,7 @@ class VoicePage extends StatefulWidget {
   State<VoicePage> createState() => _VoicePageState();
 }
 
-class _VoicePageState extends State<VoicePage> {
+class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   final stt.SpeechToText _speech = stt.SpeechToText();
   final ScrollController _scrollController = ScrollController();
   final List<_Conversation> _conversations = [];
@@ -44,6 +45,41 @@ class _VoicePageState extends State<VoicePage> {
   Timer? _listenTimer;
   VoidCallback? _afterSpeak;
 
+  /// Pendengar notifikasi push. Dipakai supaya dialog permintaan muncul
+  /// seketika saat notifikasi tiba, tanpa menunggu pemeriksaan berkala.
+  StreamSubscription<Map<String, String>>? _pushSubscription;
+
+  // --- Pemantauan permintaan tautan masuk dari pendamping ---
+  Timer? _requestPollTimer;
+  Timer? _requestRepromptTimer;
+  IncomingRequest? _incomingRequest;
+  bool _requestCheckInFlight = false;
+  bool _appResumed = true;
+
+  /// Tahap dialog permintaan tautan yang sedang berjalan.
+  /// idle = tidak ada dialog, decide = menanyakan setuju/tolak.
+  _RequestStage _requestStage = _RequestStage.idle;
+
+  /// Pilihan dari pertanyaan pertama; dipakai saat konfirmasi kedua.
+  bool? _requestAccept;
+
+  /// Sedang mengirim jawaban ke server (tombol diganti indikator).
+  bool _requestSubmitting = false;
+
+  /// Ucapan terakhir yang tertangkap saat dialog permintaan. Boleh masih
+  /// hasil sementara (belum final). Disimpan karena recognizer Android
+  /// sering mengirim jawaban pendek seperti "ya" hanya sebagai hasil
+  /// sementara, lalu menutup sesi dengan error tanpa hasil final.
+  String _lastRequestHeard = '';
+
+  /// Penjaga agar satu jawaban tidak diproses dua kali (mis. hasil sementara
+  /// yang lalu diikuti error atau status selesai).
+  bool _requestAnswerHandled = false;
+
+  /// Prompt terakhir yang dibacakan. Dipakai membuang hasil pengenalan yang
+  /// sebenarnya gema suara TTS perangkat sendiri.
+  String _lastSpokenPrompt = '';
+
   static const int _maxNoMatchRetries = 2;
   static const Duration _wakeListenFor = Duration(minutes: 5);
   static const Duration _wakePauseFor = Duration(seconds: 15);
@@ -53,6 +89,15 @@ class _VoicePageState extends State<VoicePage> {
   static const Duration _commandHardTimeout = Duration(seconds: 10);
   static const Duration _wakeHardTimeout = Duration(seconds: 20);
   static const bool _wakeEnabled = false;
+
+  /// Jeda setelah TTS selesai sebelum mikrofon dinyalakan.
+  ///
+  /// Tanpa jeda ini, mikrofon langsung menangkap ekor suara TTS perangkat
+  /// sendiri ("gema") dan bisa salah mengira itu jawaban pengguna.
+  static const Duration _postSpeechDelay = Duration(milliseconds: 600);
+
+  /// Selang antar-pemeriksaan permintaan tautan masuk.
+  static const Duration _requestPollInterval = Duration(seconds: 5);
 
   static final RegExp _wakePattern = RegExp(r'\b(hi|hai|hei)\s+alice\b');
   static final RegExp _nonWord = RegExp(r'[^a-z0-9\s]');
@@ -79,9 +124,39 @@ class _VoicePageState extends State<VoicePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     TtsService.instance.speaking.addListener(_onSpeakingChanged);
     _initSpeech();
     WidgetsBinding.instance.addPostFrameCallback((_) => _greet());
+    _startRequestPolling();
+    _listenToPushNotifications();
+  }
+
+  /// Berlangganan notifikasi push pengajuan tautan.
+  ///
+  /// Begitu notifikasi datang (aplikasi sedang di depan, atau baru diketuk
+  /// dari latar belakang), permintaan langsung diperiksa. Pemeriksaan
+  /// berkala tetap berjalan sebagai jaring pengaman kalau notifikasi tidak
+  /// sampai.
+  void _listenToPushNotifications() {
+    _pushSubscription = NotificationService.messages.listen(_onPushMessage);
+
+    // Aplikasi yang baru saja dibuka dari notifikasi: aliran di atas belum
+    // sempat mendengarnya. Periksa sekarang juga supaya tidak menunggu
+    // interval berkala. (Pemeriksaan juga aman dijalankan dua kali.)
+    if (NotificationService.consumePendingMessage() != null) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _checkIncomingRequest(),
+      );
+    }
+  }
+
+  /// Menanggapi satu notifikasi push. Dilakukan hanya kalau itu notifikasi
+  /// pengajuan tautan; jenis pesan lain diabaikan.
+  void _onPushMessage(Map<String, String> data) {
+    if (_disposed) return;
+    if (requestIdFromNotification(data) == null) return;
+    _checkIncomingRequest();
   }
 
   Future<void> _greet() async {
@@ -121,6 +196,10 @@ class _VoicePageState extends State<VoicePage> {
                     : const Duration(milliseconds: 1200),
               );
             }
+          } else if (_requestStage != _RequestStage.idle) {
+            // Dialog permintaan aktif: coba pakai ucapan yang sempat
+            // tertangkap dulu sebelum menyerah dan mengulang pertanyaan.
+            _handleRequestSpeechEnded(errorCode: error.errorMsg);
           } else {
             if (_isSpeechInfraError(error.errorMsg)) {
               _handleCommandFailure();
@@ -149,6 +228,13 @@ class _VoicePageState extends State<VoicePage> {
   Future<void> _handleCommandFailure() async {
     if (_disposed) return;
     _noMatchRetries = 0;
+    if (_requestStage != _RequestStage.idle) {
+      // Mikrofon bermasalah saat dialog permintaan: arahkan ke tombol.
+      await _speak(
+        'Pengenalan suara sedang bermasalah. Silakan tekan tombol setuju atau tolak.',
+      );
+      return;
+    }
     await _speak(
       'Pengenalan suara sedang bermasalah. Silakan coba lagi sebentar lagi.',
       then: _resumeWake,
@@ -166,6 +252,12 @@ class _VoicePageState extends State<VoicePage> {
     if (_awaitingLogoutConfirmation) {
       _awaitingLogoutConfirmation = false;
       _resumeWake();
+      return;
+    }
+    if (_requestStage != _RequestStage.idle) {
+      // Dialog permintaan aktif: pakai ucapan terakhir kalau memang memuat
+      // pilihan; kalau tidak, dengarkan lagi (tombol tetap bisa dipakai).
+      _handleRequestSpeechEnded();
       return;
     }
     if (_wakeActive) _scheduleWakeRestart();
@@ -214,6 +306,9 @@ class _VoicePageState extends State<VoicePage> {
   }
 
   Future<void> _speak(String text, {VoidCallback? then}) async {
+    // Disimpan supaya hasil pengenalan yang sebenarnya gema suara TTS
+    // perangkat sendiri bisa dibuang (lihat [_looksLikePromptEcho]).
+    _lastSpokenPrompt = text;
     _afterSpeak = then;
     await TtsService.instance.speak(text);
   }
@@ -280,6 +375,10 @@ class _VoicePageState extends State<VoicePage> {
           );
           if (wake) {
             _maybeWake(result.recognizedWords);
+          } else if (_requestStage != _RequestStage.idle) {
+            // Dialog permintaan: pakai juga hasil sementara, karena jawaban
+            // pendek seperti "ya" sering tidak pernah menjadi hasil final.
+            _onRequestSpeech(result.recognizedWords);
           } else if (result.finalResult) {
             final text = result.recognizedWords.trim();
             if (text.isEmpty) {
@@ -387,6 +486,10 @@ class _VoicePageState extends State<VoicePage> {
       _resumeWake();
       return;
     }
+    if (_requestStage != _RequestStage.idle) {
+      await _repeatUnclearAnswer();
+      return;
+    }
     if (_noMatchRetries < _maxNoMatchRetries) {
       _noMatchRetries++;
       HapticFeedback.heavyImpact();
@@ -471,6 +574,10 @@ class _VoicePageState extends State<VoicePage> {
     if (mounted) setState(() => listening = false);
     await _speech.cancel();
 
+    if (_requestStage != _RequestStage.idle) {
+      await _handleRequestAnswer(text);
+      return;
+    }
     if (_awaitingLogoutConfirmation) {
       await _handleLogoutConfirmation(text);
       return;
@@ -639,6 +746,10 @@ class _VoicePageState extends State<VoicePage> {
   @override
   void dispose() {
     _disposed = true;
+    WidgetsBinding.instance.removeObserver(this);
+    _requestPollTimer?.cancel();
+    _requestRepromptTimer?.cancel();
+    _pushSubscription?.cancel();
     TtsService.instance.speaking.removeListener(_onSpeakingChanged);
     _wakeRestartTimer?.cancel();
     _hapticTimer?.cancel();
@@ -649,10 +760,402 @@ class _VoicePageState extends State<VoicePage> {
     super.dispose();
   }
 
+  // -----------------------------------------------------------------
+  //  Permintaan tautan masuk (dipantau berkala)
+  // -----------------------------------------------------------------
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final resumed = state == AppLifecycleState.resumed;
+    if (resumed == _appResumed) return;
+    _appResumed = resumed;
+    if (resumed) {
+      _startRequestPolling();
+    } else {
+      // Berhenti memeriksa saat aplikasi tidak di depan, supaya tidak
+      // membuang kuota saat tunanetra pindah ke aplikasi lain.
+      _requestPollTimer?.cancel();
+      _requestPollTimer = null;
+    }
+  }
+
+  void _startRequestPolling() {
+    _requestPollTimer?.cancel();
+    _requestPollTimer = Timer.periodic(
+      _requestPollInterval,
+      (_) => _checkIncomingRequest(),
+    );
+    // Jangan tunggu satu interval penuh untuk pemeriksaan pertama.
+    _checkIncomingRequest();
+  }
+
+  /// Mengambil permintaan "Menunggu" terbaru milik tunanetra ini, lalu
+  /// menampilkan dialog persetujuan kalau ada yang baru.
+  Future<void> _checkIncomingRequest() async {
+    if (_disposed || _requestCheckInFlight || !_appResumed) return;
+    // Sedang ada dialog: jangan periksa lagi sampai dialog selesai.
+    if (_requestStage != _RequestStage.idle) return;
+    _requestCheckInFlight = true;
+    try {
+      final list = await IncomingRequestService.fetchIncoming();
+      if (_disposed) return;
+
+      final pending = list.isEmpty ? null : list.first;
+
+      if (pending?.id == _incomingRequest?.id) return;
+      setState(() => _incomingRequest = pending);
+      if (pending != null) {
+        debugPrint(
+          '[permintaan] masuk dari ${pending.companionName} (id=${pending.id})',
+        );
+        await _startRequestFlow(pending);
+      }
+    } catch (error) {
+      // Gagal memeriksa bukan kesalahan pengguna; cukup dicatat agar loop
+      // berikutnya bisa mencoba lagi.
+      debugPrint('[permintaan] gagal memeriksa: $error');
+    } finally {
+      _requestCheckInFlight = false;
+    }
+  }
+
+  // -----------------------------------------------------------------
+  //  Dialog permintaan tautan: pertanyaan pertama (setuju / tolak)
+  // -----------------------------------------------------------------
+
+  Future<void> _startRequestFlow(IncomingRequest request) async {
+    if (_disposed || _requestStage != _RequestStage.idle) return;
+
+    // Hentikan aktivitas suara yang sedang berjalan supaya dialog bisa
+    // memakai mikrofon dan pengeras suara tanpa tabrakan.
+    _wakeActive = false;
+    _wakeRestartTimer?.cancel();
+    _listenTimer?.cancel();
+    _requestRepromptTimer?.cancel();
+    _afterSpeak = null;
+    await _speech.cancel();
+    if (!mounted) return;
+
+    setState(() {
+      _requestStage = _RequestStage.decide;
+      _requestAccept = null;
+      _requestSubmitting = false;
+      _lastRequestHeard = '';
+      _requestAnswerHandled = false;
+      listening = false;
+      processing = false;
+    });
+    HapticFeedback.heavyImpact();
+    await _askRequestDecision();
+  }
+
+  Future<void> _askRequestDecision() async {
+    final request = _incomingRequest;
+    if (request == null || _disposed) return;
+    final prompt =
+        'Ada permintaan tautan dari ${request.companionName}. '
+        'Katakan setuju untuk menerima, atau tolak untuk menolak.';
+    await _speak(prompt, then: _listenForRequestAnswer);
+  }
+
+  void _listenForRequestAnswer() {
+    if (_disposed ||
+        _requestStage == _RequestStage.idle ||
+        _requestSubmitting) {
+      return;
+    }
+    // Jeda dulu supaya ekor suara TTS tidak ikut tertangkap mikrofon.
+    _scheduleRequestListen(_postSpeechDelay);
+  }
+
+  void _scheduleRequestReprompt() {
+    // Sedikit jeda supaya sesi mikrofon sebelumnya benar-benar lepas.
+    _scheduleRequestListen(const Duration(milliseconds: 700));
+  }
+
+  /// Menjadwalkan satu sesi mendengar untuk dialog permintaan.
+  void _scheduleRequestListen(Duration delay) {
+    _requestRepromptTimer?.cancel();
+    _requestRepromptTimer = Timer(delay, () {
+      if (_disposed ||
+          _requestStage == _RequestStage.idle ||
+          _requestSubmitting ||
+          TtsService.instance.isSpeaking ||
+          listening ||
+          _startingListen) {
+        return;
+      }
+      // Sesi baru: bersihkan sisa ucapan sesi sebelumnya supaya jawaban
+      // lama tidak menjawab pertanyaan berikutnya.
+      _lastRequestHeard = '';
+      _requestAnswerHandled = false;
+      _beginListen(wake: false);
+    });
+  }
+
+  /// Menangani ucapan selama dialog permintaan (termasuk hasil sementara).
+  ///
+  /// Hasil sementara dipakai supaya jawaban pendek seperti "ya" langsung
+  /// ditanggapi, tanpa menunggu hasil final yang sering tidak datang.
+  Future<void> _onRequestSpeech(String raw) async {
+    if (_disposed ||
+        _requestSubmitting ||
+        _requestAnswerHandled ||
+        _requestStage == _RequestStage.idle) {
+      return;
+    }
+    final text = raw.trim();
+    if (text.isEmpty) return;
+    if (_looksLikePromptEcho(text)) {
+      debugPrint('[permintaan] abaikan gema prompt: "$text"');
+      return;
+    }
+
+    _lastRequestHeard = text;
+    if (parseRequestDecision(text) == null) {
+      // Belum jelas: biarkan recognizer melanjutkan. Kalau sesi berakhir,
+      // teks terakhir ini dipakai lagi oleh [_handleRequestSpeechEnded].
+      return;
+    }
+
+    _requestAnswerHandled = true;
+    _requestRepromptTimer?.cancel();
+    await _handleRequestAnswer(text);
+  }
+
+  /// Dipanggil saat sesi mendengar dialog berakhir (status selesai/error).
+  ///
+  /// Kalau sempat tertangkap ucapan yang memuat pilihan, pakai itu dulu.
+  /// Kalau tidak, baru minta ulang — atau arahkan ke tombol bila error.
+  Future<void> _handleRequestSpeechEnded({String? errorCode}) async {
+    if (_disposed || _requestStage == _RequestStage.idle) return;
+    if (_requestAnswerHandled) return;
+
+    if (_lastRequestHeard.isNotEmpty &&
+        parseRequestDecision(_lastRequestHeard) != null) {
+      await _onRequestSpeech(_lastRequestHeard);
+      return;
+    }
+
+    if (errorCode != null) {
+      // Error menimpa rencana "dengarkan lagi" dari status selesai.
+      _requestRepromptTimer?.cancel();
+      if (_isSpeechInfraError(errorCode)) {
+        await _handleCommandFailure();
+      } else {
+        await _handleCommandNoMatch();
+      }
+      return;
+    }
+
+    if (!TtsService.instance.isSpeaking) _scheduleRequestReprompt();
+  }
+
+  /// Apakah [text] tampak sebagai gema prompt yang baru dibacakan?
+  ///
+  /// Gema biasanya panjang dan hampir sama dengan prompt. Jawaban pengguna
+  /// (misalnya "ya") pendek, jadi sengaja tidak dianggap gema.
+  bool _looksLikePromptEcho(String text) {
+    if (_lastSpokenPrompt.isEmpty) return false;
+    final said = text
+        .toLowerCase()
+        .replaceAll(_nonWord, ' ')
+        .replaceAll(_spaces, ' ')
+        .trim();
+    final prompt = _lastSpokenPrompt
+        .toLowerCase()
+        .replaceAll(_nonWord, ' ')
+        .replaceAll(_spaces, ' ')
+        .trim();
+    if (said.isEmpty || prompt.isEmpty) return false;
+    if (said.split(' ').length < 3) return false;
+    return prompt.contains(said) || said.contains(prompt);
+  }
+
+  /// Menafsirkan jawaban suara lalu meneruskannya sesuai tahap dialog.
+  ///
+  /// Tahap "decide"  : setuju/tolak -> lanjut ke konfirmasi.
+  /// Tahap "confirm" : ya = kirim jawaban, tidak = kembali ke pertanyaan awal.
+  Future<void> _handleRequestAnswer(String text) async {
+    final choice = parseRequestDecision(text);
+    if (choice == null) {
+      await _repeatUnclearAnswer();
+      return;
+    }
+
+    if (_requestStage == _RequestStage.decide) {
+      await _goToConfirmation(choice);
+    } else if (_requestStage == _RequestStage.confirm) {
+      if (choice) {
+        await _submitRequestResponse();
+      } else {
+        await _backToDecision();
+      }
+    }
+  }
+
+  /// Ucapan tidak dikenali: minta ulang sesuai tahap yang sedang berjalan.
+  Future<void> _repeatUnclearAnswer() async {
+    if (_requestStage == _RequestStage.confirm) {
+      await _speak(
+        'Maaf, saya belum paham. Katakan ya untuk melanjutkan, atau tidak untuk membatalkan.',
+        then: _listenForRequestAnswer,
+      );
+      return;
+    }
+    await _speak(
+      'Maaf, saya belum paham. Katakan setuju untuk menerima, atau tolak untuk menolak.',
+      then: _listenForRequestAnswer,
+    );
+  }
+
+  /// Pindah dari pertanyaan pertama ke konfirmasi kedua.
+  Future<void> _goToConfirmation(bool accept) async {
+    if (_disposed) return;
+    _requestRepromptTimer?.cancel();
+    await _speech.cancel();
+    if (!mounted) return;
+    setState(() {
+      _requestAccept = accept;
+      _requestStage = _RequestStage.confirm;
+      listening = false;
+    });
+    HapticFeedback.mediumImpact();
+    await _askRequestConfirmation();
+  }
+
+  /// Membatalkan pilihan dan kembali ke pertanyaan pertama.
+  Future<void> _backToDecision() async {
+    if (_disposed) return;
+    _requestRepromptTimer?.cancel();
+    await _speech.cancel();
+    if (!mounted) return;
+    setState(() {
+      _requestAccept = null;
+      _requestStage = _RequestStage.decide;
+      listening = false;
+    });
+    HapticFeedback.mediumImpact();
+    await _askRequestDecision();
+  }
+
+  Future<void> _askRequestConfirmation() async {
+    final request = _incomingRequest;
+    final accept = _requestAccept;
+    if (request == null || accept == null || _disposed) return;
+    final option = accept ? 'menerima' : 'menolak';
+    final prompt =
+        'Anda memilih $option tautan dari ${request.companionName}. '
+        'Yakin? Katakan ya untuk melanjutkan, atau tidak untuk membatalkan.';
+    await _speak(prompt, then: _listenForRequestAnswer);
+  }
+
+  /// Mengirim jawaban akhir ke server lalu membacakan hasilnya.
+  Future<void> _submitRequestResponse() async {
+    final request = _incomingRequest;
+    final accept = _requestAccept;
+    if (request == null || accept == null || _disposed) return;
+
+    _requestRepromptTimer?.cancel();
+    _listenTimer?.cancel();
+    await _speech.cancel();
+    if (!mounted) return;
+    setState(() {
+      _requestSubmitting = true;
+      listening = false;
+    });
+    HapticFeedback.heavyImpact();
+
+    try {
+      await IncomingRequestService.respond(request.id, accept: accept);
+      if (_disposed) return;
+      debugPrint(
+        '[permintaan] jawaban terkirim: ${accept ? 'terima' : 'tolak'} '
+        '(id=${request.id})',
+      );
+      _closeRequestDialog();
+      await _speak(
+        accept
+            ? 'Baik, Anda menerima tautan dari ${request.companionName}. Sekarang Anda sudah terhubung.'
+            : 'Baik, Anda menolak tautan dari ${request.companionName}.',
+        then: _resumeWake,
+      );
+    } on RequestRespondException catch (error) {
+      if (_disposed) return;
+      debugPrint('[permintaan] gagal mengirim: $error (gone=${error.gone})');
+      if (error.gone) {
+        // Pengajuan sudah tidak berlaku (dijawab/dibatalkan). Tutup saja.
+        _closeRequestDialog();
+        await _speak(
+          'Pengajuan ini sudah tidak berlaku lagi.',
+          then: _resumeWake,
+        );
+        return;
+      }
+      if (!mounted) return;
+      setState(() => _requestSubmitting = false);
+      await _speak(
+        'Maaf, jawaban belum terkirim. Kita coba sekali lagi.',
+        then: _askRequestConfirmation,
+      );
+    } catch (error) {
+      if (_disposed) return;
+      debugPrint('[permintaan] gagal mengirim: $error');
+      if (!mounted) return;
+      setState(() => _requestSubmitting = false);
+      await _speak(
+        'Maaf, jawaban belum terkirim. Kita coba sekali lagi.',
+        then: _askRequestConfirmation,
+      );
+    }
+  }
+
+  /// Menutup dialog permintaan dan mengembalikan state ke normal.
+  void _closeRequestDialog() {
+    setState(() {
+      _requestSubmitting = false;
+      _requestStage = _RequestStage.idle;
+      _requestAccept = null;
+      _incomingRequest = null;
+      _lastRequestHeard = '';
+      _requestAnswerHandled = false;
+      listening = false;
+    });
+  }
+
+  /// Dipanggil tombol pada dialog. [primary] = tombol utama
+  /// (Setuju / Ya), false = tombol kedua (Tolak / Batal).
+  Future<void> _onRequestButton(bool primary) async {
+    if (_requestSubmitting || _requestStage == _RequestStage.idle) return;
+
+    _wakeRestartTimer?.cancel();
+    _listenTimer?.cancel();
+    _requestRepromptTimer?.cancel();
+    _afterSpeak = null;
+    // Tombol sudah menentukan jawaban; cegah hasil suara yang datang
+    // telat ikut menjawab.
+    _requestAnswerHandled = true;
+    await TtsService.instance.stop();
+    if (!mounted) return;
+    setState(() => listening = false);
+
+    if (_requestStage == _RequestStage.decide) {
+      await _goToConfirmation(primary);
+      return;
+    }
+    if (primary) {
+      await _submitRequestResponse();
+    } else {
+      await _backToDecision();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AliceColors.primaryDark,
+    return Stack(
+      children: [
+        Scaffold(
+          backgroundColor: AliceColors.primaryDark,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
@@ -730,6 +1233,19 @@ class _VoicePageState extends State<VoicePage> {
           ),
         ),
       ),
+        ),
+        if (_requestStage != _RequestStage.idle && _incomingRequest != null)
+          Positioned.fill(
+            child: _RequestOverlay(
+              companionName: _incomingRequest!.companionName,
+              confirmation: _requestStage == _RequestStage.confirm,
+              accepting: _requestAccept ?? false,
+              busy: _requestSubmitting,
+              onPrimary: () => _onRequestButton(true),
+              onSecondary: () => _onRequestButton(false),
+            ),
+          ),
+      ],
     );
   }
 }
@@ -742,4 +1258,237 @@ class _Conversation {
 
   _Conversation copyWith({String? answer}) =>
       _Conversation(question: question, answer: answer ?? this.answer);
+}
+
+/// Tahap dialog permintaan tautan yang sedang berjalan.
+///
+/// idle    = tidak ada dialog.
+/// decide  = menanyakan "setuju" atau "tolak".
+/// confirm = menanyakan "yakin?" sebelum jawaban dikirim.
+enum _RequestStage { idle, decide, confirm }
+
+/// Overlay layar penuh untuk dialog permintaan tautan.
+///
+/// Menangani dua tahap:
+///   - [confirmation] false -> menanyakan "Setuju / Tolak".
+///   - [confirmation] true  -> menanyakan "Yakin?" sebelum jawaban dikirim.
+///
+/// Sengaja dibuat besar dan kontras tinggi supaya ramah pembaca layar
+/// (TalkBack) dan mudah ditekan. Lapisan gelap di belakang menahan
+/// sentuhan agar pengguna tidak tanpa sengaja menekan halaman di baliknya.
+class _RequestOverlay extends StatelessWidget {
+  final String companionName;
+  final bool confirmation;
+  final bool accepting;
+  final bool busy;
+  final VoidCallback onPrimary;
+  final VoidCallback onSecondary;
+
+  const _RequestOverlay({
+    required this.companionName,
+    required this.confirmation,
+    required this.accepting,
+    required this.busy,
+    required this.onPrimary,
+    required this.onSecondary,
+  });
+
+  String get _title =>
+      confirmation ? 'Konfirmasi Jawaban' : 'Permintaan Tautan Baru';
+
+  String get _message {
+    if (!confirmation) {
+      return '$companionName ingin menautkan akun dengan Anda.';
+    }
+    return accepting
+        ? 'Yakin ingin MENERIMA tautan dari $companionName?'
+        : 'Yakin ingin MENOLAK tautan dari $companionName?';
+  }
+
+  String get _hint {
+    if (!confirmation) {
+      return 'Anda bisa menjawab dengan suara: "setuju" atau "tolak".';
+    }
+    return 'Jawab dengan suara: "ya" untuk melanjutkan, atau "tidak" untuk membatalkan.';
+  }
+
+  String get _primaryLabel {
+    if (!confirmation) return 'Setuju';
+    return accepting ? 'Ya, Terima' : 'Ya, Tolak';
+  }
+
+  String get _secondaryLabel => confirmation ? 'Batal' : 'Tolak';
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      scopesRoute: true,
+      explicitChildNodes: true,
+      namesRoute: true,
+      label: confirmation
+          ? 'Konfirmasi jawaban untuk permintaan dari $companionName'
+          : 'Konfirmasi permintaan tautan dari $companionName',
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: AbsorbPointer(
+              child: ColoredBox(color: Colors.black.withValues(alpha: 0.65)),
+            ),
+          ),
+          Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+              child: Material(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(24),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(22, 26, 22, 22),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 84,
+                        height: 84,
+                        decoration: const BoxDecoration(
+                          color: kLightPurple,
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(
+                          confirmation
+                              ? Icons.help_outline_rounded
+                              : Icons.link_rounded,
+                          color: kDarkPurple,
+                          size: 44,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        _title,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: kTextPurple,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        _message,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          height: 1.4,
+                          color: Color(0xFF444455),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        _hint,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          height: 1.4,
+                          color: Color(0xFF777788),
+                        ),
+                      ),
+                      const SizedBox(height: 22),
+                      if (busy)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 18),
+                          child: Column(
+                            children: [
+                              CircularProgressIndicator(color: kPurple),
+                              SizedBox(height: 12),
+                              Text(
+                                'Mengirim jawaban...',
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  color: kTextPurple,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      else ...[
+                        _RequestOverlayButton(
+                          label: _primaryLabel,
+                          icon: Icons.check_rounded,
+                          background: kPurple,
+                          foreground: Colors.white,
+                          onTap: onPrimary,
+                        ),
+                        const SizedBox(height: 12),
+                        _RequestOverlayButton(
+                          label: _secondaryLabel,
+                          icon: Icons.close_rounded,
+                          background: kLightPurple,
+                          foreground: kDarkPurple,
+                          onTap: onSecondary,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Tombol besar pada overlay permintaan tautan.
+class _RequestOverlayButton extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final Color background;
+  final Color foreground;
+  final VoidCallback onTap;
+
+  const _RequestOverlayButton({
+    required this.label,
+    required this.icon,
+    required this.background,
+    required this.foreground,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: label,
+      hint: 'Ketuk dua kali untuk $label',
+      excludeSemantics: true,
+      onTap: onTap,
+      child: Material(
+        color: background,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap,
+          child: SizedBox(
+            height: 58,
+            width: double.infinity,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, color: foreground, size: 24),
+                const SizedBox(width: 10),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: foreground,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
