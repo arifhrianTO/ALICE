@@ -43,6 +43,10 @@ var ErrEmailTaken = errors.New("user: email sudah terdaftar")
 // `user.UserRepository` yang mengulang kata. Sama seperti di Laravel kamu
 // menulis `User::find()` dan bukan `User::userFind()`.
 type Repository interface {
+	// ListAccountsByRole mengambil ringkasan semua akun dengan peran
+	// tertentu (mis. semua tunanetra), diurutkan menurut nama.
+	ListAccountsByRole(ctx context.Context, role string) ([]Account, error)
+
 	// FindByEmail mencari satu pengguna berdasarkan email.
 	//
 	// Kalau emailnya tidak ada, hasilnya (nil, nil) — BUKAN error. "Tidak
@@ -130,6 +134,42 @@ func (r *postgresRepository) FindByEmail(ctx context.Context, email string) (*Us
 	}
 
 	return &u, nil
+}
+
+// ListAccountsByRole mengambil ringkasan semua akun dengan peran tertentu.
+//
+// Dipakai halaman "Tautkan Tunanetra" supaya yang tampil adalah akun
+// tunanetra yang benar-benar terdaftar, bukan data contoh.
+//
+// Pengurutan `lower(name)` membuat urutan abjad tidak terpengaruh
+// huruf besar/kecil. Akun tanpa email dilewati karena halaman itu
+// menampilkan email sebagai penanda.
+func (r *postgresRepository) ListAccountsByRole(ctx context.Context, role string) ([]Account, error) {
+	const query = `
+		SELECT user_id, name, COALESCE(email, '')
+		FROM "user"
+		WHERE role = $1::user_role AND email IS NOT NULL
+		ORDER BY lower(name)`
+
+	rows, err := r.pool.Query(ctx, query, role)
+	if err != nil {
+		return nil, fmt.Errorf("daftar akun %s: %w", role, err)
+	}
+	defer rows.Close()
+
+	var accounts []Account
+	for rows.Next() {
+		var a Account
+		if err := rows.Scan(&a.UserID, &a.Name, &a.Email); err != nil {
+			return nil, fmt.Errorf("baca akun %s: %w", role, err)
+		}
+		accounts = append(accounts, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("daftar akun %s: %w", role, err)
+	}
+
+	return accounts, nil
 }
 
 // Create menyimpan pengguna baru beserta baris profilnya.
