@@ -21,6 +21,7 @@ import (
 	"alice-backend/internal/tunanetra"
 	"alice-backend/internal/user"
 	"alice-backend/internal/connection"
+	"alice-backend/internal/schedule"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -117,6 +118,8 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 	tunanetraSearch := tunanetra.NewSearchHandler(tunanetraRepo)
 	connectionRepo := connection.NewRepository(db)
 	connectionHandler := connection.NewHandler(connectionRepo)
+	scheduleRepo := schedule.NewRepository(db)
+	scheduleHandler := schedule.NewHandler(scheduleRepo)
 
 	// ---------------------------------------------------------------
 	// Pendaftaran endpoint
@@ -156,6 +159,14 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 			protected.GET("/connections/incoming", connectionHandler.Incoming)
 			protected.PUT("/connections/:id/respond", connectionHandler.Respond)
 			protected.DELETE("/connections/:id", connectionHandler.Delete)
+
+			protected.GET("/schedules", scheduleHandler.ListSchedules)
+			protected.GET("/schedule-requests", scheduleHandler.ListRequests)
+			protected.POST("/schedule-requests", scheduleHandler.CreateRequest)
+			protected.GET("/schedule-requests/incoming", scheduleHandler.Incoming)
+			protected.PUT("/schedule-requests/:id/respond", scheduleHandler.Respond)
+			protected.DELETE("/schedule-requests/:id", scheduleHandler.CancelRequest)
+			
 		}
 	}
 
