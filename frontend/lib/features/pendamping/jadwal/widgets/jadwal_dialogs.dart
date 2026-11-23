@@ -7,6 +7,9 @@ import '../jadwal_data.dart';
 // =====================================================================
 // FUNGSI PUBLIK POP UP (TAMBAH / UBAH / HAPUS)
 // =====================================================================
+//
+// Ketiganya mengirim PENGAJUAN ke tunanetra lewat scheduleStore.
+// Jadwal baru berubah setelah tunanetra menyetujui.
 
 Future<void> showAddScheduleDialog(BuildContext context) async {
   final draft = await _showAnimatedDialog<ScheduleDraft>(
@@ -16,14 +19,19 @@ Future<void> showAddScheduleDialog(BuildContext context) async {
 
   if (draft == null || !context.mounted) return;
 
-  scheduleStore.add(
-    draft.title,
-    draft.repeat,
-    draft.time,
-    draft.date,
-  );
-
-  _snack(context, 'Jadwal ditambahkan, menunggu persetujuan');
+  try {
+    await scheduleStore.add(
+      draft.title,
+      draft.repeat,
+      draft.time,
+      draft.date,
+    );
+    if (!context.mounted) return;
+    _snack(context, 'Pengajuan jadwal terkirim, menunggu persetujuan');
+  } catch (e) {
+    if (!context.mounted) return;
+    _snack(context, _errorText(e));
+  }
 }
 
 Future<void> showEditScheduleDialog(BuildContext context, Schedule s) async {
@@ -34,15 +42,20 @@ Future<void> showEditScheduleDialog(BuildContext context, Schedule s) async {
 
   if (draft == null || !context.mounted) return;
 
-  scheduleStore.update(
-    s.id,
-    draft.title,
-    draft.repeat,
-    draft.time,
-    draft.date,
-  );
-
-  _snack(context, 'Jadwal diperbarui');
+  try {
+    await scheduleStore.update(
+      s.id,
+      draft.title,
+      draft.repeat,
+      draft.time,
+      draft.date,
+    );
+    if (!context.mounted) return;
+    _snack(context, 'Pengajuan ubah jadwal terkirim, menunggu persetujuan');
+  } catch (e) {
+    if (!context.mounted) return;
+    _snack(context, _errorText(e));
+  }
 }
 
 Future<void> showDeleteScheduleDialog(BuildContext context, Schedule s) async {
@@ -53,8 +66,27 @@ Future<void> showDeleteScheduleDialog(BuildContext context, Schedule s) async {
 
   if (ok != true || !context.mounted) return;
 
-  scheduleStore.remove(s.id);
-  _snack(context, 'Jadwal dihapus');
+  try {
+    await scheduleStore.remove(s.id);
+    if (!context.mounted) return;
+    _snack(context, 'Pengajuan hapus jadwal terkirim, menunggu persetujuan');
+  } catch (e) {
+    if (!context.mounted) return;
+    _snack(context, _errorText(e));
+  }
+}
+
+/// Ambil pesan yang enak dibaca dari error (buang awalan "Exception: ").
+String _errorText(Object e) {
+  final text = e.toString();
+  const prefix = 'Exception: ';
+  final msg = text.startsWith(prefix) ? text.substring(prefix.length) : text;
+  if (msg.contains('SocketException') ||
+      msg.contains('TimeoutException') ||
+      msg.contains('ClientException')) {
+    return 'Gagal menghubungi server';
+  }
+  return msg;
 }
 
 // =====================================================================
