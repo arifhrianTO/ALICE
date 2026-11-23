@@ -1,4 +1,3 @@
-
 import 'package:material_ui/material_ui.dart';
 
 import '../../../core/colors.dart';
@@ -25,6 +24,12 @@ class _KelolaJadwalPageState extends State<KelolaJadwalPage> {
   ];
 
   int _tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    scheduleStore.load();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -78,6 +83,55 @@ class _KelolaJadwalPageState extends State<KelolaJadwalPage> {
                 child: ListenableBuilder(
                   listenable: scheduleStore,
                   builder: (context, _) {
+                    // Pertama kali memuat.
+                    if (!scheduleStore.loaded && scheduleStore.loading) {
+                      return const Center(
+                        child: CircularProgressIndicator(color: kPurple),
+                      );
+                    }
+
+                    // Gagal memuat dan belum ada data sama sekali.
+                    if (!scheduleStore.loaded && scheduleStore.error != null) {
+                      return Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              scheduleStore.error!,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                fontSize: 14,
+                                color: Colors.black54,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextButton(
+                              onPressed: scheduleStore.load,
+                              child: const Text('Coba lagi'),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+
+                    // Sudah dimuat tapi belum terhubung dengan tunanetra.
+                    if (scheduleStore.loaded && !scheduleStore.hasConnection) {
+                      return const Center(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 24),
+                          child: Text(
+                            'Belum terhubung dengan tunanetra. '
+                            'Hubungkan dulu lewat tab Terhubung.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.black54,
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+
                     final items = scheduleStore.byStatus(_filters[_tab]);
                     return AnimatedSwitcher(
                       duration: const Duration(milliseconds: 300),

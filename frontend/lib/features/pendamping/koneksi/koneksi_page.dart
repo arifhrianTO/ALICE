@@ -3,25 +3,19 @@ import 'package:material_ui/material_ui.dart';
 import '../../../core/colors.dart';
 import 'koneksi_data.dart';
 
-// ---------------------------------------------------------------------------
-// Warna & aset lokal (khusus halaman ini)
-// ---------------------------------------------------------------------------
-const _kCardColor = Color(0xFFFFF8F6);
-const _kCardBorder = Color(0xFFE3DFF7);
-const _kTextDark = Color(0xFF2B2B3C);
-const _kDeepPurple = Color(0xFF2E0A7D);
-const _kLightPurple = Color(0xFFE2DFFF);
-
 // Gambar bulat ungu + tautan putus untuk pop-up "Putuskan tautan".
 const _kPutuskanImage = 'assets/icons/putuskan.png';
 const _kDefaultAvatar = 'assets/icons/profil.png';
+
+// Warna semantik (status & hapus), tidak ada padanannya di colors.dart
+const _kDeleteRed = Color(0xFFC62828);
+const _kDeleteBg = Color(0xFFFFE9E9);
 
 // ---------------------------------------------------------------------------
 // Model
 // ---------------------------------------------------------------------------
 // Data & enum status diambil dari `koneksi_data.dart` (ConnectionRequest,
-// ConnectionStatus, ConnectionService) supaya halaman ini tidak lagi
-// memakai data contoh yang ditulis langsung di kode.
+// ConnectionStatus, ConnectionService).
 
 enum ConnectionFilter {
   semua('Semua'),
@@ -62,11 +56,8 @@ class KoneksiPage extends StatefulWidget {
 class KoneksiPageState extends State<KoneksiPage> {
   ConnectionFilter _filter = ConnectionFilter.semua;
 
-  /// Status pemuatan daftar pengajuan dari backend.
   bool _loading = true;
   String? _error;
-
-  /// Semua pengajuan tautan milik pendamping yang sedang login.
   List<ConnectionRequest> _items = const [];
 
   @override
@@ -75,7 +66,7 @@ class KoneksiPageState extends State<KoneksiPage> {
     refresh();
   }
 
-  /// Memuat ulang daftar pengajuan dari `GET /api/requests`.
+  /// Memuat ulang daftar pengajuan dari backend.
   Future<void> refresh() async {
     setState(() {
       _loading = true;
@@ -165,27 +156,50 @@ class KoneksiPageState extends State<KoneksiPage> {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(left: 4),
-            child: Text(
-              'Terhubung',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: kTextPurple,
+          Row(
+            children: [
+              // Tombol back hanya muncul kalau halaman ini bisa di-pop
+              if (Navigator.of(context).canPop()) ...[
+                Material(
+                  color: kPurple,
+                  shape: const CircleBorder(),
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: () => Navigator.of(context).pop(),
+                    child: const SizedBox(
+                      width: 30,
+                      height: 30,
+                      child: Icon(
+                        Icons.chevron_left_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+              ],
+              const Padding(
+                padding: EdgeInsets.only(left: 4, bottom: 12),
+                child: Text(
+                  'Terhubung',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: kTextPurple,
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
-          const SizedBox(height: 14),
           _FilterTabs(
             selected: _filter,
             onChanged: (f) => setState(() => _filter = f),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 12),
           Expanded(child: _buildBody()),
         ],
       ),
@@ -214,16 +228,16 @@ class KoneksiPageState extends State<KoneksiPage> {
                 Center(
                   child: Text(
                     'Belum ada koneksi',
-                    style: TextStyle(color: Colors.black45),
+                    style: TextStyle(fontSize: 13, color: Colors.black45),
                   ),
                 ),
               ],
             )
           : ListView.separated(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.only(bottom: 24),
+              padding: const EdgeInsets.only(bottom: 100),
               itemCount: visible.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 10),
+              separatorBuilder: (_, _) => const SizedBox(height: 14),
               itemBuilder: (_, i) => ConnectionCard(
                 item: visible[i],
                 onDelete: () => _confirmDelete(visible[i]),
@@ -308,18 +322,16 @@ Future<bool?> showDisconnectDialog(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Gambar utama pop-up (assets/icons/putuskan.png)
               Image.asset(
                 _kPutuskanImage,
                 width: 110,
                 height: 110,
                 fit: BoxFit.contain,
-                // Kalau gambar tidak ditemukan, tampilkan ikon bawaan.
                 errorBuilder: (_, _, _) => Container(
                   width: 96,
                   height: 96,
                   decoration: const BoxDecoration(
-                    color: _kDeepPurple,
+                    color: kTitleIndigo,
                     shape: BoxShape.circle,
                   ),
                   child: const Icon(
@@ -364,8 +376,8 @@ Future<bool?> showDisconnectDialog(
                   Expanded(
                     child: _DialogButton(
                       label: isPending ? 'Kembali' : 'Batal',
-                      background: _kLightPurple,
-                      foreground: _kDeepPurple,
+                      background: kBtnLight,
+                      foreground: kTitleIndigo,
                       onTap: () => Navigator.pop(ctx, false),
                     ),
                   ),
@@ -428,6 +440,7 @@ class _DialogButton extends StatelessWidget {
 
 // ---------------------------------------------------------------------------
 // Tab filter (Semua / Tertaut / Menunggu / Ditolak)
+// Gaya sama dengan StatusTabs di Kelola Jadwal.
 // ---------------------------------------------------------------------------
 class _FilterTabs extends StatelessWidget {
   final ConnectionFilter selected;
@@ -437,46 +450,77 @@ class _FilterTabs extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final filters = ConnectionFilter.values;
+    final index = filters.indexOf(selected);
+
     return Container(
-      padding: const EdgeInsets.all(4),
+      height: 38,
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
         color: kPurple,
-        borderRadius: BorderRadius.circular(24),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: kPurple.withValues(alpha: 0.3),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
-      child: Row(
-        children: ConnectionFilter.values.map((f) {
-          final isSelected = f == selected;
-          return Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => onChanged(f),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: isSelected ? Colors.white : Colors.transparent,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  f.label,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: isSelected ? _kTextDark : Colors.white,
+      child: LayoutBuilder(
+        builder: (context, cons) {
+          final w = cons.maxWidth / filters.length;
+          return Stack(
+            children: [
+              AnimatedPositioned(
+                duration: const Duration(milliseconds: 250),
+                curve: Curves.easeOutCubic,
+                left: index * w + 3,
+                top: 2,
+                bottom: 2,
+                width: w - 6,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
                   ),
                 ),
               ),
-            ),
+              Row(
+                children: [
+                  for (final f in filters)
+                    SizedBox(
+                      width: w,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTap: () => onChanged(f),
+                        child: Container(
+                          alignment: Alignment.center,
+                          child: AnimatedDefaultTextStyle(
+                            duration: const Duration(milliseconds: 200),
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color:
+                                  f == selected ? kTextPurple : Colors.white,
+                            ),
+                            child: Text(f.label),
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
           );
-        }).toList(),
+        },
       ),
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Kartu koneksi
+// Kartu koneksi (ukuran sama dengan ManageCard, warna tetap dari Terhubung)
 // ---------------------------------------------------------------------------
 class ConnectionCard extends StatelessWidget {
   final ConnectionRequest item;
@@ -490,14 +534,14 @@ class ConnectionCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
       decoration: BoxDecoration(
-        color: _kCardColor,
+        color: kFieldBg,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: _kCardBorder),
+        border: Border.all(color: kLightPurple),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withAlpha(10),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -505,7 +549,7 @@ class ConnectionCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _Avatar(asset: _kDefaultAvatar),
+          const _Avatar(asset: _kDefaultAvatar),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -513,35 +557,52 @@ class ConnectionCard extends StatelessWidget {
               children: [
                 Text(
                   item.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
                     color: Colors.black,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   item.email,
-                  style: const TextStyle(fontSize: 11, color: Colors.black87),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Colors.black87,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 StatusBadge(status: item.status),
               ],
             ),
           ),
-          if (_canDelete)
-            Align(
-              alignment: Alignment.topCenter,
+          if (_canDelete) ...[
+            const SizedBox(width: 8),
+            Material(
+              color: _kDeleteBg,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+                side: const BorderSide(color: _kDeleteRed, width: 1),
+              ),
               child: InkWell(
+                borderRadius: BorderRadius.circular(6),
                 onTap: onDelete,
-                borderRadius: BorderRadius.circular(20),
-                child: const Padding(
-                  padding: EdgeInsets.all(4),
-                  child: Icon(Icons.delete_outline,
-                      size: 20, color: Color(0xFFE53935)),
+                child: const SizedBox(
+                  width: 30,
+                  height: 30,
+                  child: Icon(
+                    Icons.delete_outline_rounded,
+                    size: 19,
+                    color: _kDeleteRed,
+                  ),
                 ),
               ),
             ),
+          ],
         ],
       ),
     );
@@ -557,8 +618,8 @@ class _Avatar extends StatelessWidget {
     const fallback = Icon(Icons.person, color: kPurple, size: 26);
 
     return Container(
-      width: 52,
-      height: 52,
+      width: 56,
+      height: 56,
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         shape: BoxShape.circle,
@@ -572,7 +633,6 @@ class _Avatar extends StatelessWidget {
               : Image.asset(
                   asset!,
                   fit: BoxFit.cover,
-                  // Kalau gambar tidak ditemukan, tampilkan ikon orang.
                   errorBuilder: (_, _, _) => fallback,
                 ),
         ),
@@ -613,16 +673,16 @@ class StatusBadge extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: fg.withAlpha(128), width: 0.8),
+        border: Border.all(color: fg.withValues(alpha: 0.5), width: 0.8),
       ),
       child: Text(
         label,
-        style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: fg),
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg),
       ),
     );
   }
-}
+} 

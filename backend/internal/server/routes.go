@@ -17,6 +17,7 @@ import (
 	"alice-backend/internal/notification"
 	"alice-backend/internal/profile"
 	"alice-backend/internal/request"
+	"alice-backend/internal/schedule"
 	"alice-backend/internal/shared/config"
 	"alice-backend/internal/shared/crypto"
 	"alice-backend/internal/shared/middleware"
@@ -141,6 +142,8 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 
 	tunanetraRepo := tunanetra.NewRepository(db)
 	tunanetraSearch := tunanetra.NewSearchHandler(tunanetraRepo)
+	scheduleRepo := schedule.NewRepository(db)
+	scheduleHandler := schedule.NewHandler(scheduleRepo)
 
 	// ---------------------------------------------------------------
 	// Pendaftaran endpoint
@@ -196,6 +199,14 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 
 			// --- Pencarian tunanetra asli dari database (halaman Tautkan) ---
 			protected.GET("/tunanetra/search", tunanetraSearch.Search)
+
+			protected.GET("/schedules", scheduleHandler.ListSchedules)
+			protected.GET("/schedule-requests", scheduleHandler.ListRequests)
+			protected.POST("/schedule-requests", scheduleHandler.CreateRequest)
+			protected.GET("/schedule-requests/incoming", scheduleHandler.Incoming)
+			protected.PUT("/schedule-requests/:id/respond", scheduleHandler.Respond)
+			protected.DELETE("/schedule-requests/:id", scheduleHandler.CancelRequest)
+
 		}
 	}
 
