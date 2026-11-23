@@ -8,6 +8,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../core/api_config.dart';
 import '../../core/colors.dart';
+import '../../core/notification_service.dart';
 import '../../core/tts_service.dart';
 import '../auth/role_page.dart';
 import '../pendamping/jadwal/jadwal_data.dart';
@@ -539,6 +540,9 @@ class _VoicePageState extends State<VoicePage> {
     await _speech.cancel();
     await TtsService.instance.speak('Baik, sampai jumpa.');
     await TtsService.instance.stop();
+
+    // Lepaskan HP ini dari akun dulu, selagi token sesi masih tersimpan.
+    await NotificationService.unregisterCurrentDevice();
 
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('session_token') ?? '';

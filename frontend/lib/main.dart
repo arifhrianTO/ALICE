@@ -4,6 +4,7 @@ import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 
 import 'core/api_config.dart';
 import 'core/colors.dart';
+import 'core/notification_service.dart';
 import 'features/auth/splash_page.dart';
 import 'features/pendamping/beranda/beranda_page.dart';
 import 'features/pendamping/jadwal/jadwal_page.dart';
@@ -13,7 +14,11 @@ import 'features/pendamping/profile/profile_page.dart';
 import 'features/pendamping/widgets/bottom_bar.dart';
 
 Future<void> main() async {
+  // Firebase butuh pengikatan Flutter sebelum dipakai.
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Kegagalan di sini tidak menghentikan aplikasi: lihat NotificationService.
+  await NotificationService.init();
 
   // Facebook SDK berbasis JavaScript/WebView perlu diinisialisasi lebih
   // dulu pada web dan desktop. Android/iOS memakai SDK native.
@@ -74,6 +79,19 @@ class HomeShell extends StatefulWidget {
 class _HomeShellState extends State<HomeShell> {
   int _index = 0;
 
+  // Kunci ke state tab "Terhubung" supaya bisa disegarkan setelah
+  // pendamping selesai menautkan tunanetra baru.
+  final GlobalKey<KoneksiPageState> _koneksiKey = GlobalKey<KoneksiPageState>();
+
+  Future<void> _openTautkan() async {
+    final added = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => const TautkanTunanetraPage()),
+    );
+    if (added == true) {
+      _koneksiKey.currentState?.refresh();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -86,7 +104,7 @@ class _HomeShellState extends State<HomeShell> {
                 index: _index,
                 children: [
                   const BerandaPage(),
-                  const KoneksiPage(),
+                  KoneksiPage(key: _koneksiKey),
                   const SizedBox.shrink(),
                   const JadwalPage(),
                   ProfilePage(
@@ -100,9 +118,7 @@ class _HomeShellState extends State<HomeShell> {
             AppBottomBar(
               selectedIndex: _index,
               onTap: (i) => setState(() => _index = i),
-              onAdd: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const TautkanTunanetraPage()),
-              ),
+              onAdd: _openTautkan,
             ),
           ],
         ),

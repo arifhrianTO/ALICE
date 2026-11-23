@@ -35,6 +35,10 @@ func (m *mockUserRepo) UpdateProfile(ctx context.Context, userID, name string, p
 	return nil
 }
 
+func (m *mockUserRepo) ListAccountsByRole(ctx context.Context, role string) ([]user.Account, error) {
+	return nil, nil
+}
+
 type mockSessionRepo struct{}
 
 func (m *mockSessionRepo) Create(ctx context.Context, s *auth.Session) error {
@@ -192,4 +196,8 @@ func (m *mockUserRepoCreate) FindProfile(ctx context.Context, userID string) (*u
 
 func (m *mockUserRepoCreate) UpdateProfile(ctx context.Context, userID, name string, phoneNumber, address *string) error {
 	return nil
+}
+
+func (m *mockUserRepoCreate) ListAccountsByRole(ctx context.Context, role string) ([]user.Account, error) {
+	return nil, nil
 }

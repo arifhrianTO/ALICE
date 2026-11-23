@@ -6,13 +6,18 @@
 package server
 
 import (
+	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
 	"alice-backend/internal/assistant"
 	"alice-backend/internal/auth"
+	"alice-backend/internal/connection"
+	"alice-backend/internal/notification"
 	"alice-backend/internal/profile"
+	"alice-backend/internal/request"
 	"alice-backend/internal/shared/config"
 	"alice-backend/internal/shared/crypto"
 	"alice-backend/internal/shared/middleware"
@@ -20,7 +25,6 @@ import (
 	"alice-backend/internal/system"
 	"alice-backend/internal/tunanetra"
 	"alice-backend/internal/user"
-	"alice-backend/internal/connection"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -89,6 +93,22 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 	// di batas database, bukan tersebar di handler atau service.
 	userRepo := user.NewRepository(db, fieldCipher)
 	sessionRepo := auth.NewSessionRepository(db)
+	notificationRepo := notification.NewRepository(db)
+
+	// Pengirim FCM disiapkan paling akhir karena dia bergantung pada file
+	// kredensial di luar database. Kalau file belum ada, notifikasi
+	// dimatikan dengan peringatan — server TIDAK ikut berhenti.
+	//
+	// Alasannya: login, profil, dan jadwal tetap harus bisa dipakai
+	// walaupun fitur push notification belum siap.
+	var notificationSender notification.Sender
+	sender, err := notification.NewFCMSender(context.Background(), cfg.FirebaseCredentialsFile)
+	if err != nil {
+		log.Printf("[notifikasi] push notification dimatikan: %v", err)
+	} else {
+		notificationSender = sender
+		log.Println("[notifikasi] FCM siap")
+	}
 
 	// Lapis 2: service. Menerima repository, bukan membuatnya sendiri.
 	//
@@ -105,11 +125,18 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 		cfg.FacebookAppID,
 		cfg.FacebookAppSecret,
 	)
+	notificationService := notification.NewService(notificationRepo, notificationSender)
 
 	// Lapis 3: handler. Hanya tahu soal HTTP.
 	authHandler := auth.NewHandler(authService)
 	profileService := profile.NewService(userRepo)
 	profileHandler := profile.NewHandler(profileService)
+	tunanetraService := tunanetra.NewService(userRepo)
+	tunanetraHandler := tunanetra.NewHandler(tunanetraService)
+	requestRepo := request.NewRepository(db)
+	requestService := request.NewService(requestRepo, userRepo)
+	requestHandler := request.NewHandler(requestService)
+	notificationHandler := notification.NewHandler(notificationService)
 	health := system.NewHealthHandler(db)
 	assistantHandler := assistant.NewHandler()
 
@@ -148,6 +175,26 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 			protected.GET("/profile", profileHandler.Get)
 			protected.PUT("/profile", profileHandler.Update)
 
+			// --- Daftar akun tunanetra asli (halaman "Tautkan Tunanetra") ---
+			// Dibuat terpisah dari `GET /api/tunanetra` yang masih dipakai
+			// halaman peta, supaya mengubahnya tidak merusak halaman itu.
+			protected.GET("/tunanetra/accounts", tunanetraHandler.ListAccounts)
+
+			// --- Pengajuan tautan (halaman "Terhubung") ---
+			// Pendamping mengirim pengajuan (POST), melihat statusnya (GET),
+			// dan bisa membatalkan/memutusnya (DELETE). Semua difilter atas
+			// nama pendamping yang sedang login.
+			protected.GET("/requests", requestHandler.List)
+			protected.POST("/requests", requestHandler.Create)
+			protected.DELETE("/requests/:id", requestHandler.Delete)
+
+			// --- Token perangkat untuk push notification ---
+			// Terlindungi token login: hanya pemilik sesi yang boleh
+			// mendaftarkan/menghapus token perangkat.
+			protected.POST("/device-tokens", notificationHandler.RegisterToken)
+			protected.DELETE("/device-tokens", notificationHandler.DeleteToken)
+
+			// --- Endpoint dari main: pencarian & koneksi tunanetra ---
 			// daftar tunanetra asli dari database (untuk halaman Tautkan)
 			protected.GET("/tunanetra/search", tunanetraSearch.Search)
 

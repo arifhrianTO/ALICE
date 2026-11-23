@@ -8,6 +8,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api_config.dart';
+import '../../core/notification_service.dart';
 import '../../main.dart';
 import '../tunanetra/voice_page.dart';
 import 'email_login_page.dart';
@@ -104,6 +105,10 @@ class LoginPage extends StatelessWidget {
       await prefs.setString('user_role', userRole);
       await prefs.setString('user_name', userName);
       await prefs.setString('user_email', userEmail);
+
+      // Daftarkan HP ini supaya bisa menerima notifikasi atas nama akun
+      // yang baru saja masuk.
+      await NotificationService.registerCurrentDevice();
 
       if (!context.mounted) return;
 

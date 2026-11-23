@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/api_config.dart';
+import '../../core/notification_service.dart';
 import '../../main.dart';
 import '../tunanetra/voice_page.dart';
 
@@ -171,6 +172,10 @@ class _EmailLoginPageState extends State<EmailLoginPage> {
         await prefs.setString('user_phone', phone);
         await prefs.setString('user_address', address);
       }
+
+      // Daftarkan HP ini supaya bisa menerima notifikasi atas nama akun
+      // yang baru saja masuk.
+      await NotificationService.registerCurrentDevice();
 
       if (!mounted) return;
 
