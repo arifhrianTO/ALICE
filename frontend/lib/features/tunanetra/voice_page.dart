@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
+import '../../core/schedule_service.dart';
 
 import '../../core/api_config.dart';
 import '../../core/colors.dart';
@@ -83,6 +84,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   Timer? _requestPollTimer;
   Timer? _requestRepromptTimer;
   IncomingRequest? _incomingRequest;
+  ScheduleRequestRecord? _incomingSchedule;
   bool _requestCheckInFlight = false;
   bool _appResumed = true;
 
@@ -222,11 +224,11 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     }
   }
 
-  /// Menanggapi satu notifikasi push. Dilakukan hanya kalau itu notifikasi
-  /// pengajuan tautan; jenis pesan lain diabaikan.
+  /// Menanggapi notifikasi push. Pemeriksaan server menjadi sumber data
+  /// utama, sehingga payload cukup menjadi pemicu untuk memuat ulang daftar
+  /// permintaan tautan maupun permintaan jadwal.
   void _onPushMessage(Map<String, String> data) {
-    if (_disposed) return;
-    if (requestIdFromNotification(data) == null) return;
+    if (_disposed || _loggingOut) return;
     _checkIncomingRequest();
   }
 
@@ -1008,32 +1010,74 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     _checkIncomingRequest();
   }
 
-  /// Mengambil permintaan "Menunggu" terbaru milik tunanetra ini, lalu
-  /// menampilkan dialog persetujuan kalau ada yang baru.
+  /// Mengambil permintaan tautan dan jadwal yang masih menunggu.
+  /// Permintaan tautan diprioritaskan; setelah selesai, pemeriksaan berkala
+  /// berikutnya akan menampilkan permintaan jadwal yang masih tertunda.
   Future<void> _checkIncomingRequest() async {
     if (_disposed || _loggingOut || _requestCheckInFlight || !_appResumed) {
       return;
     }
-    // Sedang ada dialog: jangan periksa lagi sampai dialog selesai.
     if (_requestStage != _RequestStage.idle) return;
     _requestCheckInFlight = true;
     try {
-      final list = await IncomingRequestService.fetchIncoming();
+      final linkRequests = await IncomingRequestService.fetchIncoming();
       if (_disposed || _loggingOut) return;
 
-      final pending = list.isEmpty ? null : list.first;
+      List<ScheduleRequestRecord> scheduleRequests = [];
+      try {
+        scheduleRequests = await ScheduleService.fetchIncoming();
+      } catch (error) {
+        // Kegagalan endpoint jadwal tidak boleh menghalangi permintaan tautan.
+        debugPrint('[jadwal] gagal memeriksa permintaan: $error');
+      }
+      if (_disposed || _loggingOut) return;
 
-      if (pending?.id == _incomingRequest?.id) return;
-      setState(() => _incomingRequest = pending);
-      if (pending != null) {
+      final linkPending = linkRequests.isEmpty ? null : linkRequests.first;
+      final schedulePending = scheduleRequests.isEmpty
+          ? null
+          : scheduleRequests.first;
+
+      if (linkPending != null) {
+        if (_incomingRequest?.id == linkPending.id &&
+            _incomingSchedule == null) {
+          return;
+        }
+        setState(() {
+          _incomingRequest = linkPending;
+          _incomingSchedule = null;
+        });
         debugPrint(
-          '[permintaan] masuk dari ${pending.companionName} (id=${pending.id})',
+          '[permintaan] tautan dari ${linkPending.companionName} '
+          '(id=${linkPending.id})',
         );
-        await _startRequestFlow(pending);
+        await _startRequestFlow(linkPending);
+        return;
+      }
+
+      if (schedulePending != null) {
+        if (_incomingSchedule?.id == schedulePending.id &&
+            _incomingRequest == null) {
+          return;
+        }
+        setState(() {
+          _incomingRequest = null;
+          _incomingSchedule = schedulePending;
+        });
+        debugPrint(
+          '[permintaan] jadwal dari ${schedulePending.companionName} '
+          '(id=${schedulePending.id}, action=${schedulePending.action})',
+        );
+        await _startRequestFlow(schedulePending);
+        return;
+      }
+
+      if (_incomingRequest != null || _incomingSchedule != null) {
+        setState(() {
+          _incomingRequest = null;
+          _incomingSchedule = null;
+        });
       }
     } catch (error) {
-      // Gagal memeriksa bukan kesalahan pengguna; cukup dicatat agar loop
-      // berikutnya bisa mencoba lagi.
       debugPrint('[permintaan] gagal memeriksa: $error');
     } finally {
       _requestCheckInFlight = false;
@@ -1044,7 +1088,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   //  Dialog permintaan tautan: pertanyaan pertama (setuju / tolak)
   // -----------------------------------------------------------------
 
-  Future<void> _startRequestFlow(IncomingRequest request) async {
+  Future<void> _startRequestFlow(Object request) async {
     if (_disposed || _loggingOut || _requestStage != _RequestStage.idle) return;
 
     // Hentikan aktivitas suara yang sedang berjalan supaya dialog bisa
@@ -1070,12 +1114,130 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     await _askRequestDecision();
   }
 
+  String get _activeCompanionName =>
+      _incomingSchedule?.companionName ?? _incomingRequest?.companionName ?? 'pendamping';
+
+  String _scheduleActionLabel(String action) {
+    switch (action.toLowerCase()) {
+      case 'add':
+      case 'create':
+      case 'tambah':
+        return 'menambahkan';
+      case 'edit':
+      case 'update':
+      case 'ubah':
+        return 'mengubah';
+      case 'delete':
+      case 'remove':
+      case 'hapus':
+        return 'menghapus';
+      default:
+        return 'mengajukan';
+    }
+  }
+
+  String _scheduleRepeatSpeech(String repeatType) {
+    switch (repeatType.toLowerCase()) {
+      case 'daily':
+      case 'every_day':
+      case 'harian':
+        return 'setiap hari';
+      case 'weekly':
+      case 'every_week':
+      case 'mingguan':
+        return 'setiap minggu';
+      case 'monthly':
+      case 'every_month':
+      case 'bulanan':
+        return 'setiap bulan';
+      case 'none':
+      case 'never':
+      case 'once':
+      case 'tidak_berulang':
+      case '':
+        return 'tidak berulang';
+      default:
+        return repeatType;
+    }
+  }
+
+  String _scheduleSpeech(ScheduleRequestRecord request) {
+    final action = _scheduleActionLabel(request.action);
+
+    final titleValue = (request.title ?? '').trim();
+    final title = titleValue.isEmpty ? 'jadwal' : titleValue;
+
+    final parts = <String>[
+      '$_activeCompanionName ingin $action jadwal $title',
+    ];
+
+    final time = (request.time ?? '').trim();
+    if (time.isNotEmpty) parts.add('pukul $time');
+
+    final day = (request.day ?? '').trim();
+    if (day.isNotEmpty) parts.add('hari $day');
+
+    final startDate = (request.startDate ?? '').trim();
+    if (startDate.isNotEmpty) {
+      parts.add('mulai tanggal $startDate');
+    }
+
+    final repeat = _scheduleRepeatSpeech(request.repeatType ?? '');
+    if (repeat.isNotEmpty) parts.add('pengulangan $repeat');
+
+    final reminderMinutes = request.reminderMinutes ?? 0;
+    if (reminderMinutes > 0) {
+      parts.add('pengingat $reminderMinutes menit sebelumnya');
+    }
+
+    return '${parts.join(', ')}.';
+  }
+
+  String? get _activeScheduleSummary {
+    final request = _incomingSchedule;
+    if (request == null) return null;
+
+    final titleValue = (request.title ?? '').trim();
+    final title = titleValue.isEmpty ? 'Jadwal' : titleValue;
+
+    final parts = <String>[
+      '${_scheduleActionLabel(request.action)}: $title',
+    ];
+
+    final time = (request.time ?? '').trim();
+    if (time.isNotEmpty) parts.add('Waktu $time');
+
+    final day = (request.day ?? '').trim();
+    if (day.isNotEmpty) parts.add('Hari $day');
+
+    final startDate = (request.startDate ?? '').trim();
+    if (startDate.isNotEmpty) {
+      parts.add('Mulai $startDate');
+    }
+
+    final repeat = _scheduleRepeatSpeech(request.repeatType ?? '');
+    if (repeat.isNotEmpty) parts.add('Pengulangan $repeat');
+
+    final reminderMinutes = request.reminderMinutes ?? 0;
+    if (reminderMinutes > 0) {
+      parts.add('Pengingat $reminderMinutes menit sebelumnya');
+    }
+
+    return parts.join(' • ');
+  }
+
   Future<void> _askRequestDecision() async {
-    final request = _incomingRequest;
-    if (request == null || _disposed) return;
-    final prompt =
-        'Ada permintaan tautan dari ${request.companionName}. '
-        'Katakan setuju untuk menerima, atau tolak untuk menolak.';
+    if (_disposed) return;
+    final schedule = _incomingSchedule;
+    final prompt = schedule != null
+        ? 'Ada permintaan jadwal dari ${schedule.companionName}. '
+            '${_scheduleSpeech(schedule)} '
+            'Katakan setuju untuk menerima, atau tolak untuk menolak.'
+        : _incomingRequest == null
+            ? ''
+            : 'Ada permintaan tautan dari ${_incomingRequest!.companionName}. '
+                'Katakan setuju untuk menerima, atau tolak untuk menolak.';
+    if (prompt.isEmpty) return;
     await _speak(prompt, then: _listenForRequestAnswer);
   }
 
@@ -1253,21 +1415,28 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   }
 
   Future<void> _askRequestConfirmation() async {
-    final request = _incomingRequest;
     final accept = _requestAccept;
-    if (request == null || accept == null || _disposed) return;
+    if (accept == null || _disposed ||
+        (_incomingRequest == null && _incomingSchedule == null)) {
+      return;
+    }
     final option = accept ? 'menerima' : 'menolak';
+    final kind = _incomingSchedule == null ? 'tautan' : 'permintaan jadwal';
     final prompt =
-        'Anda memilih $option tautan dari ${request.companionName}. '
+        'Anda memilih $option $kind dari $_activeCompanionName. '
         'Yakin? Katakan ya untuk melanjutkan, atau tidak untuk membatalkan.';
     await _speak(prompt, then: _listenForRequestAnswer);
   }
 
   /// Mengirim jawaban akhir ke server lalu membacakan hasilnya.
   Future<void> _submitRequestResponse() async {
-    final request = _incomingRequest;
+    final linkRequest = _incomingRequest;
+    final scheduleRequest = _incomingSchedule;
     final accept = _requestAccept;
-    if (request == null || accept == null || _disposed) return;
+    if ((linkRequest == null && scheduleRequest == null) ||
+        accept == null || _disposed) {
+      return;
+    }
 
     _requestRepromptTimer?.cancel();
     _listenTimer?.cancel();
@@ -1280,24 +1449,30 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     HapticFeedback.heavyImpact();
 
     try {
-      await IncomingRequestService.respond(request.id, accept: accept);
+      if (scheduleRequest != null) {
+        await ScheduleService.respond(scheduleRequest.id, accept: accept);
+      } else {
+        await IncomingRequestService.respond(linkRequest!.id, accept: accept);
+      }
       if (_disposed) return;
+
+      final kind = scheduleRequest == null ? 'tautan' : 'permintaan jadwal';
       debugPrint(
-        '[permintaan] jawaban terkirim: ${accept ? 'terima' : 'tolak'} '
-        '(id=${request.id})',
+        '[permintaan] jawaban $kind terkirim: ${accept ? 'terima' : 'tolak'}',
       );
       _closeRequestDialog();
-      await _speak(
-        accept
-            ? 'Baik, Anda menerima tautan dari ${request.companionName}. Sekarang Anda sudah terhubung.'
-            : 'Baik, Anda menolak tautan dari ${request.companionName}.',
-        then: _resumeWake,
-      );
+      final message = scheduleRequest == null
+          ? accept
+              ? 'Baik, Anda menerima tautan dari ${linkRequest!.companionName}. Sekarang Anda sudah terhubung.'
+              : 'Baik, Anda menolak tautan dari ${linkRequest!.companionName}.'
+          : accept
+              ? 'Baik, Anda menerima permintaan jadwal dari ${scheduleRequest.companionName}.'
+              : 'Baik, Anda menolak permintaan jadwal dari ${scheduleRequest.companionName}.';
+      await _speak(message, then: _resumeWake);
     } on RequestRespondException catch (error) {
       if (_disposed) return;
       debugPrint('[permintaan] gagal mengirim: $error (gone=${error.gone})');
       if (error.gone) {
-        // Pengajuan sudah tidak berlaku (dijawab/dibatalkan). Tutup saja.
         _closeRequestDialog();
         await _speak(
           'Pengajuan ini sudah tidak berlaku lagi.',
@@ -1330,6 +1505,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
       _requestStage = _RequestStage.idle;
       _requestAccept = null;
       _incomingRequest = null;
+      _incomingSchedule = null;
       _lastRequestHeard = '';
       _requestAnswerHandled = false;
       listening = false;
@@ -1449,10 +1625,12 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
             ),
           ),
         ),
-        if (_requestStage != _RequestStage.idle && _incomingRequest != null)
+        if (_requestStage != _RequestStage.idle &&
+            (_incomingRequest != null || _incomingSchedule != null))
           Positioned.fill(
             child: _RequestOverlay(
-              companionName: _incomingRequest!.companionName,
+              companionName: _activeCompanionName,
+              scheduleSummary: _activeScheduleSummary,
               confirmation: _requestStage == _RequestStage.confirm,
               accepting: _requestAccept ?? false,
               busy: _requestSubmitting,
@@ -1493,6 +1671,7 @@ enum _RequestStage { idle, decide, confirm }
 /// sentuhan agar pengguna tidak tanpa sengaja menekan halaman di baliknya.
 class _RequestOverlay extends StatelessWidget {
   final String companionName;
+  final String? scheduleSummary;
   final bool confirmation;
   final bool accepting;
   final bool busy;
@@ -1501,6 +1680,7 @@ class _RequestOverlay extends StatelessWidget {
 
   const _RequestOverlay({
     required this.companionName,
+    this.scheduleSummary,
     required this.confirmation,
     required this.accepting,
     required this.busy,
@@ -1508,16 +1688,25 @@ class _RequestOverlay extends StatelessWidget {
     required this.onSecondary,
   });
 
-  String get _title =>
-      confirmation ? 'Konfirmasi Jawaban' : 'Permintaan Tautan Baru';
+  bool get _isSchedule => scheduleSummary != null;
+
+  String get _title => confirmation
+      ? 'Konfirmasi Jawaban'
+      : _isSchedule
+          ? 'Permintaan Jadwal Baru'
+          : 'Permintaan Tautan Baru';
 
   String get _message {
     if (!confirmation) {
+      if (_isSchedule) {
+        return '$companionName mengajukan permintaan jadwal: $scheduleSummary';
+      }
       return '$companionName ingin menautkan akun dengan Anda.';
     }
+    final kind = _isSchedule ? 'permintaan jadwal' : 'tautan';
     return accepting
-        ? 'Yakin ingin MENERIMA tautan dari $companionName?'
-        : 'Yakin ingin MENOLAK tautan dari $companionName?';
+        ? 'Yakin ingin MENERIMA $kind dari $companionName?'
+        : 'Yakin ingin MENOLAK $kind dari $companionName?';
   }
 
   String get _hint {
