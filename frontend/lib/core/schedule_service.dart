@@ -1,3 +1,4 @@
+
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -15,11 +16,12 @@ class ScheduleRecord {
   final String id;
   final String tunanetraId;
   final String title;
-  final String repeatType; // 'Tidak berulang' | 'Setiap hari' | 'Setiap minggu'
-  final String time; // 'HH:MM'
-  final String? day; // 'Senin'..'Minggu', boleh null
-  final String? startDate; // 'YYYY-MM-DD', null untuk data lama
-  final int reminderMinutes; // pengingat sebelum jadwal, default 10
+  final String? description;
+  final String repeatType;
+  final String time;
+  final String? day;
+  final String? startDate;
+  final int reminderMinutes;
 
   const ScheduleRecord({
     required this.id,
@@ -27,15 +29,18 @@ class ScheduleRecord {
     required this.title,
     required this.repeatType,
     required this.time,
+    this.description,
     this.day,
     this.startDate,
     this.reminderMinutes = 10,
   });
 
-  factory ScheduleRecord.fromJson(Map<String, dynamic> j) => ScheduleRecord(
+  factory ScheduleRecord.fromJson(Map<String, dynamic> j) =>
+      ScheduleRecord(
         id: (j['id'] ?? '').toString(),
         tunanetraId: (j['tunanetra_id'] ?? '').toString(),
         title: (j['title'] ?? '').toString(),
+        description: j['description']?.toString(),
         repeatType: (j['repeat_type'] ?? '').toString(),
         time: (j['time'] ?? '').toString(),
         day: j['day']?.toString(),
@@ -45,8 +50,6 @@ class ScheduleRecord {
 }
 
 /// Satu pengajuan dari pendamping (tabel `schedule_request`).
-/// Isi title/repeatType/time/day/startDate/reminderMinutes adalah isi
-/// jadwal SETELAH perubahan.
 class ScheduleRequestRecord {
   final String id;
   final String tunanetraId;
@@ -54,13 +57,14 @@ class ScheduleRequestRecord {
   final String companionId;
   final String companionName;
   final String? scheduleId;
-  final String action; // 'Tambah' | 'Ubah' | 'Hapus'
-  final String status; // 'Menunggu' | 'Disetujui' | 'Ditolak'
+  final String action;
+  final String status;
   final String? title;
+  final String? description;
   final String? repeatType;
   final String? time;
   final String? day;
-  final String? startDate; // 'YYYY-MM-DD'
+  final String? startDate;
   final int? reminderMinutes;
 
   const ScheduleRequestRecord({
@@ -73,6 +77,7 @@ class ScheduleRequestRecord {
     required this.status,
     this.scheduleId,
     this.title,
+    this.description,
     this.repeatType,
     this.time,
     this.day,
@@ -91,6 +96,7 @@ class ScheduleRequestRecord {
         action: (j['action'] ?? '').toString(),
         status: (j['status'] ?? '').toString(),
         title: j['title']?.toString(),
+        description: j['description']?.toString(),
         repeatType: j['repeat_type']?.toString(),
         time: j['time']?.toString(),
         day: j['day']?.toString(),
@@ -136,7 +142,6 @@ class ScheduleService {
     return data.whereType<Map<String, dynamic>>().toList();
   }
 
-  /// Ubah DateTime menjadi 'YYYY-MM-DD' (tanpa zona waktu, sesuai kolom date).
   static String formatDate(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-'
       '${d.month.toString().padLeft(2, '0')}-'
@@ -146,9 +151,6 @@ class ScheduleService {
   // Baca
   // -------------------------------------------------------------------
 
-  /// GET /api/schedules
-  /// Jadwal yang berlaku. Pendamping mengisi [tunanetraId]; aplikasi
-  /// tunanetra boleh mengosongkannya (otomatis jadwal miliknya sendiri).
   static Future<List<ScheduleRecord>> fetchSchedules({
     String? tunanetraId,
   }) async {
@@ -164,8 +166,6 @@ class ScheduleService {
     return _list(body).map(ScheduleRecord.fromJson).toList();
   }
 
-  /// GET /api/schedule-requests
-  /// Riwayat pengajuan milik pendamping (semua status).
   static Future<List<ScheduleRequestRecord>> fetchRequests({
     String? tunanetraId,
   }) async {
@@ -181,8 +181,6 @@ class ScheduleService {
     return _list(body).map(ScheduleRequestRecord.fromJson).toList();
   }
 
-  /// GET /api/schedule-requests/incoming
-  /// Pengajuan yang menunggu jawaban tunanetra yang sedang login.
   static Future<List<ScheduleRequestRecord>> fetchIncoming() async {
     final res = await http
         .get(_uri('/schedule-requests/incoming'), headers: await _headers())
@@ -207,16 +205,11 @@ class ScheduleService {
     _check(res, _decode(res));
   }
 
-  /// Ajukan jadwal baru. Jadwal baru berlaku setelah tunanetra setuju.
-  /// [time] berformat 'HH:MM'. [repeatType]: 'Tidak berulang',
-  /// 'Setiap hari', atau 'Setiap minggu'.
-  /// [startDate] adalah tanggal dari kalender; backend mengisi hari
-  /// otomatis dari tanggal ini, jadi [day] tidak perlu dikirim.
-  /// Jadwal 'Tidak berulang' wajib punya [startDate].
   static Future<void> submitAdd({
     required String tunanetraId,
     required String title,
     required String time,
+    String? description,
     String? repeatType,
     String? day,
     DateTime? startDate,
@@ -227,17 +220,18 @@ class ScheduleService {
         'action': 'Tambah',
         'title': title,
         'time': time,
+        if (description != null) 'description': description,
         if (repeatType != null) 'repeat_type': repeatType,
         if (day != null) 'day': day,
         if (startDate != null) 'start_date': formatDate(startDate),
         if (reminderMinutes != null) 'reminder_minutes': reminderMinutes,
       });
 
-  /// Ajukan perubahan jadwal. Isian yang null memakai nilai lama.
   static Future<void> submitEdit({
     required String tunanetraId,
     required String scheduleId,
     String? title,
+    String? description,
     String? time,
     String? repeatType,
     String? day,
@@ -249,6 +243,7 @@ class ScheduleService {
         'action': 'Ubah',
         'schedule_id': scheduleId,
         if (title != null) 'title': title,
+        if (description != null) 'description': description,
         if (time != null) 'time': time,
         if (repeatType != null) 'repeat_type': repeatType,
         if (day != null) 'day': day,
@@ -256,7 +251,6 @@ class ScheduleService {
         if (reminderMinutes != null) 'reminder_minutes': reminderMinutes,
       });
 
-  /// Ajukan penghapusan jadwal.
   static Future<void> submitDelete({
     required String tunanetraId,
     required String scheduleId,
@@ -267,7 +261,6 @@ class ScheduleService {
         'schedule_id': scheduleId,
       });
 
-  /// PUT /api/schedule-requests/:id/respond  (dipakai sisi tunanetra)
   static Future<void> respond(String requestId, {required bool accept}) async {
     final res = await http
         .put(
@@ -279,8 +272,6 @@ class ScheduleService {
     _check(res, _decode(res));
   }
 
-  /// DELETE /api/schedule-requests/:id  (pendamping membatalkan pengajuan
-  /// yang masih Menunggu)
   static Future<void> cancelRequest(String requestId) async {
     final res = await http
         .delete(_uri('/schedule-requests/$requestId'),
