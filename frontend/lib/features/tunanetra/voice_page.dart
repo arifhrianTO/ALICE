@@ -18,6 +18,8 @@ import 'assistant_service.dart';
 import 'incoming_request_data.dart';
 import 'widgets/chat_bubble.dart';
 import 'widgets/mic_button.dart';
+import '../../core/device_reporter.dart';
+
 
 class VoicePage extends StatefulWidget {
   const VoicePage({super.key});
@@ -235,9 +237,12 @@ Future<void> _repeatActivePopup() async {
     return phrases.any((p) => padded.contains(' $p '));
   }
 
+  
+
   @override
   void initState() {
     super.initState();
+    DeviceReporter.start();
     WidgetsBinding.instance.addObserver(this);
     TtsService.instance.speaking.addListener(_onSpeakingChanged);
     _initSpeech();

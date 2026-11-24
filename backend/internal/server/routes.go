@@ -25,6 +25,7 @@ import (
 	"alice-backend/internal/system"
 	"alice-backend/internal/tunanetra"
 	"alice-backend/internal/user"
+	"alice-backend/internal/monitoring"
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -144,6 +145,8 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 	tunanetraSearch := tunanetra.NewSearchHandler(tunanetraRepo)
 	scheduleRepo := schedule.NewRepository(db)
 	scheduleHandler := schedule.NewHandler(scheduleRepo, notificationService)
+	monitoringRepo := monitoring.NewRepository(db)
+	monitoringHandler := monitoring.NewHandler(monitoringRepo)
 
 	// ---------------------------------------------------------------
 	// Pendaftaran endpoint
@@ -206,6 +209,9 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 			protected.GET("/schedule-requests/incoming", scheduleHandler.Incoming)
 			protected.PUT("/schedule-requests/:id/respond", scheduleHandler.Respond)
 			protected.DELETE("/schedule-requests/:id", scheduleHandler.CancelRequest)
+
+			protected.GET("/monitoring/:tunanetra_id", monitoringHandler.GetStatus)
+			protected.PUT("/monitoring/me", monitoringHandler.UpdateMyStatus)
 
 		}
 	}
