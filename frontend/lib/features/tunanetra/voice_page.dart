@@ -9,6 +9,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import '../../core/api_config.dart';
 import '../../core/colors.dart';
 import '../../core/notification_service.dart';
+import '../../core/social_signout.dart';
 import '../../core/tts_service.dart';
 import '../auth/role_page.dart';
 import '../pendamping/jadwal/jadwal_data.dart';
@@ -38,12 +39,41 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   bool _listeningWake = false;
   bool _startingListen = false;
   bool _awaitingLogoutConfirmation = false;
+
+  /// True begitu proses keluar akun dimulai. Dipakai untuk mematikan semua
+  /// aktivitas lain (mikrofon, pemeriksaan permintaan, dialog) supaya tidak
+  /// ada yang berjalan di tengah proses keluar.
+  bool _loggingOut = false;
   int _noMatchRetries = 0;
 
   Timer? _wakeRestartTimer;
-  Timer? _hapticTimer;
   Timer? _listenTimer;
+  Timer? _endOfSpeechTimer;
   VoidCallback? _afterSpeak;
+
+  /// Kapan terakhir kali ada aktivitas audio (TTS selesai, sesi mikrofon
+  /// berakhir). Jeda penyesuaian mikrofon hanya diberikan kalau aktivitas
+  /// itu baru saja terjadi, jadi menekan tombol mikrofon saat sepi langsung
+  /// diproses tanpa menunggu.
+  DateTime _lastAudioActivity = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Level suara paling sepi pada sesi mendengar yang sedang berjalan.
+  double? _levelBaseline;
+  int _levelLogCount = 0;
+
+  /// Bahasa pengenalan suara disimpan setelah dicari sekali, karena
+  /// `_speech.locales()` memanggil platform dan bisa memakan waktu.
+  String? _speechLocale;
+  bool _localeResolved = false;
+
+  /// Waktu getaran terakhir saat pengguna berbicara. Dipakai membatasi
+  /// jarak antar-getaran supaya tidak bergetar terus-menerus.
+  DateTime _lastUserSpeechHaptic = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Ucapan final terakhir. Dipakai membuang hasil final ganda yang kadang
+  /// dikirim dua kali oleh recognizer Android.
+  String _lastFinalText = '';
+  DateTime _lastFinalAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   /// Pendengar notifikasi push. Dipakai supaya dialog permintaan muncul
   /// seketika saat notifikasi tiba, tanpa menunggu pemeriksaan berkala.
@@ -84,17 +114,43 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   static const Duration _wakeListenFor = Duration(minutes: 5);
   static const Duration _wakePauseFor = Duration(seconds: 15);
   static const Duration _commandListenFor = Duration(seconds: 30);
-  static const Duration _commandPauseFor = Duration(seconds: 6);
-  static const Duration _micSettleDelay = Duration(milliseconds: 800);
+
+  /// Lama diam sebelum ucapan dianggap selesai. Dulu 6 detik, sehingga
+  /// jawaban baru diproses lama setelah pengguna berhenti bicara.
+  /// Naikkan sedikit (mis. 4 detik) kalau ucapan sering terpotong.
+  static const Duration _commandPauseFor = Duration(seconds: 2);
+
+  /// Jika tidak ada kata baru selama ini setelah pengguna mulai bicara,
+  /// ucapan dianggap selesai dan mikrofon dimatikan sendiri (tidak menunggu
+  /// recognizer Android yang kadang lama menutup sesi). Naikkan (mis. 2
+  /// detik) kalau kalimat sering terpotong saat pengguna berhenti sejenak.
+  static const Duration _endOfSpeechSilence = Duration(milliseconds: 700);
+
+  /// Jeda singkat agar mikrofon benar-benar lepas sebelum dipakai lagi.
+  /// Dulu 800 ms. Kalau muncul error "busy" atau mikrofon gagal menyala,
+  /// naikkan lagi ke 500 ms.
+  static const Duration _micSettleDelay = Duration(milliseconds: 300);
+
   static const Duration _commandHardTimeout = Duration(seconds: 10);
   static const Duration _wakeHardTimeout = Duration(seconds: 20);
   static const bool _wakeEnabled = false;
 
-  /// Jeda setelah TTS selesai sebelum mikrofon dinyalakan.
+  /// Jeda setelah TTS selesai sebelum mikrofon dinyalakan di dialog
+  /// permintaan. Dulu 600 ms.
   ///
   /// Tanpa jeda ini, mikrofon langsung menangkap ekor suara TTS perangkat
   /// sendiri ("gema") dan bisa salah mengira itu jawaban pengguna.
-  static const Duration _postSpeechDelay = Duration(milliseconds: 600);
+  static const Duration _postSpeechDelay = Duration(milliseconds: 200);
+
+  /// Jarak minimum antar-getaran saat pengguna berbicara.
+  static const Duration _userSpeechHapticGap = Duration(milliseconds: 350);
+
+  /// Seberapa jauh level suara harus naik dari level paling sepi pada sesi
+  /// itu supaya dianggap pengguna sedang berbicara. Pada Android levelnya
+  /// kira-kira -2 (sepi) sampai 10 (keras). Turunkan (mis. 2.5) kalau
+  /// bicara pelan tidak bergetar; naikkan (mis. 5) kalau suara sekitar
+  /// ikut membuatnya bergetar.
+  static const double _voiceLevelRise = 3.5;
 
   /// Selang antar-pemeriksaan permintaan tautan masuk.
   static const Duration _requestPollInterval = Duration(seconds: 5);
@@ -120,6 +176,21 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     'gak',
     'enggak',
   ];
+
+  /// Merapikan teks: huruf kecil, tanpa tanda baca, spasi tunggal.
+  static String _normalize(String text) => text
+      .toLowerCase()
+      .replaceAll(_nonWord, ' ')
+      .replaceAll(_spaces, ' ')
+      .trim();
+
+  /// Apakah [text] memuat salah satu kata/frasa sebagai KATA UTUH.
+  ///
+  /// Berbeda dengan `contains` biasa: "saya" tidak lagi dianggap memuat "ya".
+  static bool _hasAnyPhrase(String text, List<String> phrases) {
+    final padded = ' ${_normalize(text)} ';
+    return phrases.any((p) => padded.contains(' $p '));
+  }
 
   @override
   void initState() {
@@ -182,6 +253,8 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
         onError: (error) {
           if (_disposed) return;
           debugPrint('Speech error: ${error.errorMsg}');
+          _touchAudio();
+          _endOfSpeechTimer?.cancel();
           final fromWake = _listeningWake;
           _listeningWake = false;
           if (mounted && listening) setState(() => listening = false);
@@ -211,6 +284,10 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
       );
       if (!mounted) return;
       setState(() => _speechAvailable = available);
+      if (available && !_localeResolved) {
+        _speechLocale = await _pickLocale();
+        _localeResolved = true;
+      }
       debugPrint('Speech init: available = $available, wakeActive = $_wakeActive');
       if (available && _wakeActive) _scheduleWakeRestart();
     } catch (_) {
@@ -226,7 +303,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
       code == 'error_client';
 
   Future<void> _handleCommandFailure() async {
-    if (_disposed) return;
+    if (_disposed || _loggingOut) return;
     _noMatchRetries = 0;
     if (_requestStage != _RequestStage.idle) {
       // Mikrofon bermasalah saat dialog permintaan: arahkan ke tombol.
@@ -243,17 +320,30 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
 
   void _onSpeechStatus(String status) {
     if (_disposed) return;
+    if (status == 'listening') {
+      // Mikrofon benar-benar sudah aktif: bunyi klik sebagai tanda
+      // "silakan bicara".
+      if (!_listeningWake && listening) {
+        unawaited(SystemSound.play(SystemSoundType.click));
+      }
+      return;
+    }
     if (status != 'done' && status != 'notListening') return;
     debugPrint('Speech status: $status');
+    _touchAudio();
+    _endOfSpeechTimer?.cancel();
     final wasCommandListening = !_listeningWake && listening;
     _listeningWake = false;
     if (mounted && wasCommandListening) setState(() => listening = false);
     if (TtsService.instance.isSpeaking || processing) return;
-    if (_awaitingLogoutConfirmation) {
-      _awaitingLogoutConfirmation = false;
-      _resumeWake();
-      return;
-    }
+
+    // CATATAN: status konfirmasi keluar sengaja TIDAK direset di sini.
+    // Status "done/notListening" juga dikirim oleh setiap `_speech.cancel()`
+    // (yang dipanggil tepat sebelum pertanyaan konfirmasi dibacakan), jadi
+    // dulu penanda konfirmasi ikut terhapus dan jawaban "ya" malah dianggap
+    // pertanyaan biasa. Kalau pengguna diam, error "no match" dari recognizer
+    // yang membatalkan konfirmasi (lihat [_handleCommandNoMatch]).
+
     if (_requestStage != _RequestStage.idle) {
       // Dialog permintaan aktif: pakai ucapan terakhir kalau memang memuat
       // pilihan; kalau tidak, dengarkan lagi (tombol tetap bisa dipakai).
@@ -263,20 +353,22 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     if (_wakeActive) _scheduleWakeRestart();
   }
 
+  /// Dipanggil setiap status TTS berubah.
+  ///
+  /// Tidak ada getaran di sini: getaran sekarang hanya aktif saat PENGGUNA
+  /// berbicara (lihat [_hapticForUserSpeech]), bukan saat ALICE berbicara.
   void _onSpeakingChanged() {
-    if (_disposed) return;
+    if (_disposed || _loggingOut) return;
     if (TtsService.instance.isSpeaking) {
-      _stopHaptics();
-      _startHaptics();
       _listeningWake = false;
       _listenTimer?.cancel();
+      _endOfSpeechTimer?.cancel();
       _speech.cancel();
       if (mounted && listening) setState(() => listening = false);
       return;
     }
 
-    _stopHaptics();
-    _completionHaptics();
+    _touchAudio();
     final action = _afterSpeak;
     _afterSpeak = null;
     if (action != null) {
@@ -286,23 +378,72 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     }
   }
 
-  void _startHaptics() {
-    _hapticTimer?.cancel();
+  /// Getaran singkat selama pengguna berbicara.
+  ///
+  /// Dipicu dari dua sumber, supaya tetap terasa walaupun recognizer jarang
+  /// mengirim hasil sementara:
+  ///   1. level suara mikrofon ([_onSoundLevel]), terus-menerus selama
+  ///      pengguna bersuara;
+  ///   2. kata baru yang tertangkap ([_hapticForUserSpeech]).
+  /// Keduanya dibatasi [_userSpeechHapticGap] supaya tidak bergetar rapat.
+  void _pulseForUserSpeech() {
+    if (_disposed ||
+        _loggingOut ||
+        !listening ||
+        TtsService.instance.isSpeaking) {
+      return;
+    }
+    final now = DateTime.now();
+    if (now.difference(_lastUserSpeechHaptic) < _userSpeechHapticGap) return;
+    _lastUserSpeechHaptic = now;
     HapticFeedback.mediumImpact();
-    _hapticTimer = Timer.periodic(const Duration(milliseconds: 700), (_) {
-      if (TtsService.instance.isSpeaking) HapticFeedback.selectionClick();
+  }
+
+  /// Getaran saat ada kata baru yang tertangkap.
+  void _hapticForUserSpeech(String words) {
+    final text = words.trim();
+    if (text.isEmpty || _looksLikePromptEcho(text)) return;
+    _pulseForUserSpeech();
+  }
+
+  /// Dipanggil terus-menerus oleh mikrofon dengan level suara saat ini.
+  /// Bergetar kalau levelnya naik jelas di atas level paling sepi sesi ini.
+  void _onSoundLevel(double level) {
+    if (_disposed || !listening || _listeningWake) return;
+
+    // Catatan untuk menyetel [_voiceLevelRise]: level dicetak berkala.
+    if (_levelLogCount++ % 20 == 0) {
+      debugPrint(
+        'Speech level: ${level.toStringAsFixed(1)} '
+        '(sepi: ${_levelBaseline?.toStringAsFixed(1)})',
+      );
+    }
+
+    final base = _levelBaseline;
+    if (base == null || level < base) {
+      _levelBaseline = level;
+      return;
+    }
+    if (level - base >= _voiceLevelRise) _pulseForUserSpeech();
+  }
+
+  void _touchAudio() => _lastAudioActivity = DateTime.now();
+
+  /// Mematikan mikrofon sendiri kalau pengguna sudah berhenti bicara.
+  ///
+  /// Dipanggil tiap ada hasil (sementara/final). Selama kata terus bertambah,
+  /// timer diulang. Begitu tidak ada kata baru selama [_endOfSpeechSilence],
+  /// mikrofon dihentikan dan hasil dikirim, tanpa menunggu recognizer
+  /// menutup sesi sendiri.
+  void _armEndOfSpeechTimer(String words, bool isFinal) {
+    _endOfSpeechTimer?.cancel();
+    if (isFinal || words.trim().isEmpty) return;
+    _endOfSpeechTimer = Timer(_endOfSpeechSilence, () {
+      if (_disposed || _loggingOut || !_speech.isListening) return;
+      debugPrint('Speech: tidak ada kata baru, hentikan mendengar');
+      if (mounted && listening) setState(() => listening = false);
+      _speech.stop();
     });
-  }
-
-  void _stopHaptics() {
-    _hapticTimer?.cancel();
-    _hapticTimer = null;
-  }
-
-  Future<void> _completionHaptics() async {
-    await HapticFeedback.lightImpact();
-    await Future<void>.delayed(const Duration(milliseconds: 120));
-    await HapticFeedback.lightImpact();
   }
 
   Future<void> _speak(String text, {VoidCallback? then}) async {
@@ -333,6 +474,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     if (!_speechAvailable ||
         _startingListen ||
         _disposed ||
+        _loggingOut ||
         TtsService.instance.isSpeaking) {
       debugPrint(
         'Speech beginListen($wake): skipped (available=$_speechAvailable, '
@@ -348,16 +490,23 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     }
     _startingListen = true;
     try {
-      await _speech.cancel();
-      await _waitMicReleased();
-      final locale = await _pickLocale();
-      debugPrint('Speech beginListen($wake): starting, locale=$locale');
+      // Tampilan langsung berubah (mikrofon merah + satu getaran) begitu
+      // tombol ditekan, tanpa menunggu mikrofon siap. Bunyi klik menyusul
+      // saat mikrofon benar-benar aktif (lihat status 'listening').
       _listeningWake = wake;
       if (!wake && mounted) {
         setState(() => listening = true);
         HapticFeedback.mediumImpact();
-        await SystemSound.play(SystemSoundType.click);
       }
+      await _waitMicReleased();
+      if (!_localeResolved) {
+        _speechLocale = await _pickLocale();
+        _localeResolved = true;
+      }
+      final locale = _speechLocale;
+      _levelBaseline = null;
+      debugPrint('Speech beginListen($wake): starting, locale=$locale');
+      if (_disposed || _loggingOut) return;
       await _speech.listen(
         listenOptions: stt.SpeechListenOptions(
           localeId: locale,
@@ -367,6 +516,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
           cancelOnError: false,
           listenMode: stt.ListenMode.confirmation,
         ),
+        onSoundLevelChange: _onSoundLevel,
         onResult: (result) {
           if (_disposed) return;
           debugPrint(
@@ -375,7 +525,14 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
           );
           if (wake) {
             _maybeWake(result.recognizedWords);
-          } else if (_requestStage != _RequestStage.idle) {
+            return;
+          }
+
+          // Pengguna sedang berbicara: bergetar, dan pantau kapan berhenti.
+          _hapticForUserSpeech(result.recognizedWords);
+          _armEndOfSpeechTimer(result.recognizedWords, result.finalResult);
+
+          if (_requestStage != _RequestStage.idle) {
             // Dialog permintaan: pakai juga hasil sementara, karena jawaban
             // pendek seperti "ya" sering tidak pernah menjadi hasil final.
             _onRequestSpeech(result.recognizedWords);
@@ -417,9 +574,12 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   Future<void> _waitMicReleased() async {
     final deadline = DateTime.now().add(const Duration(seconds: 3));
     while (_speech.isListening && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 150));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
     }
-    await Future<void>.delayed(_micSettleDelay);
+    // Jeda hanya sisa waktu sejak aktivitas audio terakhir. Kalau sudah
+    // lama sepi (mis. pengguna baru menekan tombol), langsung lanjut.
+    final remaining = _micSettleDelay - DateTime.now().difference(_lastAudioActivity);
+    if (remaining > Duration.zero) await Future<void>.delayed(remaining);
   }
 
   void _scheduleListenRetry({required bool wake, int attempts = 0}) {
@@ -429,7 +589,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
       return;
     }
     _wakeRestartTimer?.cancel();
-    _wakeRestartTimer = Timer(const Duration(milliseconds: 800), () {
+    _wakeRestartTimer = Timer(const Duration(milliseconds: 500), () {
       if (_disposed || TtsService.instance.isSpeaking) return;
       if (_startingListen || _speech.isListening) {
         _scheduleListenRetry(wake: wake, attempts: attempts + 1);
@@ -474,13 +634,13 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   }
 
   void _listenForCommand() {
-    if (_disposed) return;
+    if (_disposed || _loggingOut) return;
     _wakeActive = true;
     _beginListen(wake: false);
   }
 
   Future<void> _handleCommandNoMatch() async {
-    if (_disposed) return;
+    if (_disposed || _loggingOut) return;
     if (_awaitingLogoutConfirmation) {
       _awaitingLogoutConfirmation = false;
       _resumeWake();
@@ -508,11 +668,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
 
   void _maybeWake(String text) {
     if (!_wakeActive || _disposed) return;
-    final normalized = text
-        .toLowerCase()
-        .replaceAll(_nonWord, ' ')
-        .replaceAll(_spaces, ' ')
-        .trim();
+    final normalized = _normalize(text);
     final match = _wakePattern.firstMatch(normalized);
     if (match == null) return;
 
@@ -531,6 +687,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   }
 
   Future<void> _toggle() async {
+    if (_loggingOut) return;
     if (TtsService.instance.isSpeaking) {
       HapticFeedback.lightImpact();
       await TtsService.instance.stop();
@@ -538,6 +695,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     }
     if (listening) {
       _wakeActive = true;
+      _endOfSpeechTimer?.cancel();
       await _speech.stop();
       if (mounted) setState(() => listening = false);
       _scheduleWakeRestart();
@@ -558,19 +716,36 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     _wakeActive = true;
     _noMatchRetries = 0;
     _wakeRestartTimer?.cancel();
-    await _speech.cancel();
-    await _waitMicReleased();
+    // _beginListen sudah membatalkan sesi lama dan menunggu mikrofon lepas,
+    // jadi tidak perlu diulang di sini (dulu menambah jeda dua kali lipat).
     await _beginListen(wake: false);
+  }
+
+  /// True kalau [text] sama dengan ucapan final yang baru saja diproses.
+  /// Recognizer Android kadang mengirim hasil final dua kali; tanpa ini
+  /// "keluar" yang kedua dianggap jawaban konfirmasi dan membatalkan keluar.
+  bool _isDuplicateFinal(String text) {
+    final now = DateTime.now();
+    final duplicate = text == _lastFinalText &&
+        now.difference(_lastFinalAt) < const Duration(seconds: 2);
+    _lastFinalText = text;
+    _lastFinalAt = now;
+    return duplicate;
   }
 
   Future<void> _handleFinal(String raw) async {
     final text = raw.trim();
-    if (text.isEmpty || _disposed) return;
+    if (text.isEmpty || _disposed || _loggingOut) return;
+    if (_isDuplicateFinal(text)) {
+      debugPrint('Speech final ganda diabaikan: "$text"');
+      return;
+    }
 
     _noMatchRetries = 0;
     _wakeActive = false;
     _listeningWake = false;
     _wakeRestartTimer?.cancel();
+    _endOfSpeechTimer?.cancel();
     if (mounted) setState(() => listening = false);
     await _speech.cancel();
 
@@ -589,10 +764,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     await _submitQuestion(text);
   }
 
-  bool _isLogoutCommand(String text) {
-    final normalized = text.toLowerCase();
-    return _logoutWords.any(normalized.contains);
-  }
+  bool _isLogoutCommand(String text) => _hasAnyPhrase(text, _logoutWords);
 
   Future<void> _beginLogoutConfirmation(String question) async {
     const prompt =
@@ -616,9 +788,8 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   }
 
   Future<void> _handleLogoutConfirmation(String text) async {
-    final normalized = text.toLowerCase();
-    final saysNo = _noWords.any(normalized.contains);
-    final saysYes = _yesWords.any(normalized.contains);
+    final saysNo = _hasAnyPhrase(text, _noWords);
+    final saysYes = _hasAnyPhrase(text, _yesWords);
     setState(() {
       listening = false;
       _awaitingLogoutConfirmation = false;
@@ -641,30 +812,63 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     await _speak(message, then: _resumeWake);
   }
 
+  /// Menjalankan [action] dan menelan semua error. Dipakai pada langkah
+  /// pembersihan saat keluar: kegagalan satu langkah tidak boleh
+  /// menghentikan proses keluar.
+  Future<void> _safely(Future<dynamic> Function() action) async {
+    try {
+      await action();
+    } catch (_) {
+      // Sengaja diabaikan.
+    }
+  }
+
+  /// Mengucapkan salam perpisahan lalu menunggu selesai (maksimal 3 detik).
+  /// Sebagian mesin TTS mengembalikan Future sebelum suara selesai, jadi
+  /// status "sedang bicara" ikut dipantau supaya ucapan tidak terpotong.
+  Future<void> _sayGoodbye() async {
+    await _safely(() => TtsService.instance.speak('Baik, sampai jumpa.'));
+    await Future<void>.delayed(const Duration(milliseconds: 150));
+    final deadline = DateTime.now().add(const Duration(seconds: 3));
+    while (TtsService.instance.isSpeaking && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    await _safely(() => TtsService.instance.stop());
+  }
+
   Future<void> _performLogout() async {
+    if (_loggingOut) return;
+    _loggingOut = true;
+
+    // Hentikan semua aktivitas lain lebih dulu.
     _wakeActive = false;
+    _awaitingLogoutConfirmation = false;
     _wakeRestartTimer?.cancel();
-    await _speech.cancel();
-    await TtsService.instance.speak('Baik, sampai jumpa.');
-    await TtsService.instance.stop();
+    _listenTimer?.cancel();
+    _endOfSpeechTimer?.cancel();
+    _requestPollTimer?.cancel();
+    _requestPollTimer = null;
+    _requestRepromptTimer?.cancel();
+    _afterSpeak = null;
+    if (mounted && listening) setState(() => listening = false);
+    await _safely(() => _speech.cancel());
+
+    await _sayGoodbye();
 
     // Lepaskan HP ini dari akun dulu, selagi token sesi masih tersimpan.
-    await NotificationService.unregisterCurrentDevice();
+    // Dibatasi 3 detik supaya keluar tidak tertahan kalau server mati.
+        await _safely(
+      () => NotificationService.unregisterCurrentDevice().timeout(
+        const Duration(seconds: 3),
+      ),
+    );
+
+    // Keluarkan akun Google/Facebook dari HP supaya login berikutnya
+    // menampilkan pilihan akun lagi.
+    await signOutSocialAccounts();
 
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('session_token') ?? '';
-    if (token.isNotEmpty) {
-      try {
-        await http
-            .post(
-              Uri.parse('${ApiConfig.baseUrl}/api/auth/logout'),
-              headers: {'Authorization': 'Bearer $token'},
-            )
-            .timeout(const Duration(seconds: 5));
-      } catch (_) {
-        // Keluar tetap dilanjutkan walau server tidak bisa dihubungi.
-      }
-    }
 
     for (final key in const [
       'isLoggedIn',
@@ -679,6 +883,21 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
       await prefs.remove(key);
     }
     scheduleStore.reset();
+
+    // Beri tahu server di latar belakang. Tidak ditunggu, supaya perpindahan
+    // halaman tidak tertahan; keluar tetap berlaku di HP walau server gagal.
+    if (token.isNotEmpty) {
+      unawaited(
+        _safely(
+          () => http
+              .post(
+                Uri.parse('${ApiConfig.baseUrl}/api/auth/logout'),
+                headers: {'Authorization': 'Bearer $token'},
+              )
+              .timeout(const Duration(seconds: 5)),
+        ),
+      );
+    }
 
     if (!mounted) return;
     Navigator.pushAndRemoveUntil(
@@ -752,8 +971,8 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     _pushSubscription?.cancel();
     TtsService.instance.speaking.removeListener(_onSpeakingChanged);
     _wakeRestartTimer?.cancel();
-    _hapticTimer?.cancel();
     _listenTimer?.cancel();
+    _endOfSpeechTimer?.cancel();
     _speech.cancel();
     _scrollController.dispose();
     TtsService.instance.stop();
@@ -770,7 +989,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
     if (resumed == _appResumed) return;
     _appResumed = resumed;
     if (resumed) {
-      _startRequestPolling();
+      if (!_loggingOut) _startRequestPolling();
     } else {
       // Berhenti memeriksa saat aplikasi tidak di depan, supaya tidak
       // membuang kuota saat tunanetra pindah ke aplikasi lain.
@@ -792,13 +1011,15 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   /// Mengambil permintaan "Menunggu" terbaru milik tunanetra ini, lalu
   /// menampilkan dialog persetujuan kalau ada yang baru.
   Future<void> _checkIncomingRequest() async {
-    if (_disposed || _requestCheckInFlight || !_appResumed) return;
+    if (_disposed || _loggingOut || _requestCheckInFlight || !_appResumed) {
+      return;
+    }
     // Sedang ada dialog: jangan periksa lagi sampai dialog selesai.
     if (_requestStage != _RequestStage.idle) return;
     _requestCheckInFlight = true;
     try {
       final list = await IncomingRequestService.fetchIncoming();
-      if (_disposed) return;
+      if (_disposed || _loggingOut) return;
 
       final pending = list.isEmpty ? null : list.first;
 
@@ -824,7 +1045,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   // -----------------------------------------------------------------
 
   Future<void> _startRequestFlow(IncomingRequest request) async {
-    if (_disposed || _requestStage != _RequestStage.idle) return;
+    if (_disposed || _loggingOut || _requestStage != _RequestStage.idle) return;
 
     // Hentikan aktivitas suara yang sedang berjalan supaya dialog bisa
     // memakai mikrofon dan pengeras suara tanpa tabrakan.
@@ -870,7 +1091,7 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
 
   void _scheduleRequestReprompt() {
     // Sedikit jeda supaya sesi mikrofon sebelumnya benar-benar lepas.
-    _scheduleRequestListen(const Duration(milliseconds: 700));
+    _scheduleRequestListen(const Duration(milliseconds: 300));
   }
 
   /// Menjadwalkan satu sesi mendengar untuk dialog permintaan.
@@ -957,16 +1178,8 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
   /// (misalnya "ya") pendek, jadi sengaja tidak dianggap gema.
   bool _looksLikePromptEcho(String text) {
     if (_lastSpokenPrompt.isEmpty) return false;
-    final said = text
-        .toLowerCase()
-        .replaceAll(_nonWord, ' ')
-        .replaceAll(_spaces, ' ')
-        .trim();
-    final prompt = _lastSpokenPrompt
-        .toLowerCase()
-        .replaceAll(_nonWord, ' ')
-        .replaceAll(_spaces, ' ')
-        .trim();
+    final said = _normalize(text);
+    final prompt = _normalize(_lastSpokenPrompt);
     if (said.isEmpty || prompt.isEmpty) return false;
     if (said.split(' ').length < 3) return false;
     return prompt.contains(said) || said.contains(prompt);
@@ -1156,83 +1369,85 @@ class _VoicePageState extends State<VoicePage> with WidgetsBindingObserver {
       children: [
         Scaffold(
           backgroundColor: AliceColors.primaryDark,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        centerTitle: true,
-        title: Semantics(
-          header: true,
-          label: 'Halaman Suara ALICE',
-          child: Padding(
-            padding: const EdgeInsets.only(top: 8, bottom: 4),
-            child: Image.asset(
-              'assets/icons/logo_full.png',
-              width: 142,
-              height: 48,
-              fit: BoxFit.contain,
-              semanticLabel: 'Logo ALICE',
+          appBar: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            centerTitle: true,
+            title: Semantics(
+              header: true,
+              label: 'Halaman Suara ALICE',
+              child: Padding(
+                padding: const EdgeInsets.only(top: 8, bottom: 4),
+                child: Image.asset(
+                  'assets/icons/logo_full.png',
+                  width: 142,
+                  height: 48,
+                  fit: BoxFit.contain,
+                  semanticLabel: 'Logo ALICE',
+                ),
+              ),
             ),
           ),
-        ),
-      ),
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) => Column(
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
-                child: ValueListenableBuilder<bool>(
-                  valueListenable: TtsService.instance.speaking,
-                  builder: (context, speaking, _) => MicButton(
-                    listening: listening,
-                    speaking: speaking,
-                    onTap: _toggle,
-                    diameter: constraints.maxWidth.clamp(0.0, 360.0),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Expanded(
-                child: ListView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
-                  itemCount: _conversations.length + (processing ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    if (processing && index == 0) {
-                      return const Padding(
-                        padding: EdgeInsets.all(16),
-                        child: Center(
-                          child: CircularProgressIndicator(color: Colors.white),
-                        ),
-                      );
-                    }
-                    final conversation =
-                        _conversations[processing ? index - 1 : index];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
-                      child: Column(
-                        children: [
-                          ChatBubble.user(
-                            label: 'Suara Anda',
-                            body: conversation.question,
-                          ),
-                          const SizedBox(height: 12),
-                          ChatBubble.alice(
-                            label: 'Respon Sistem',
-                            body:
-                                conversation.answer ??
-                                'Sedang menyiapkan jawaban...',
-                          ),
-                        ],
+          body: SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) => Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 12, 18, 0),
+                    child: ValueListenableBuilder<bool>(
+                      valueListenable: TtsService.instance.speaking,
+                      builder: (context, speaking, _) => MicButton(
+                        listening: listening,
+                        speaking: speaking,
+                        onTap: _toggle,
+                        diameter: constraints.maxWidth.clamp(0.0, 360.0),
                       ),
-                    );
-                  },
-                ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Expanded(
+                    child: ListView.builder(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                      itemCount: _conversations.length + (processing ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (processing && index == 0) {
+                          return const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Center(
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                              ),
+                            ),
+                          );
+                        }
+                        final conversation =
+                            _conversations[processing ? index - 1 : index];
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 20),
+                          child: Column(
+                            children: [
+                              ChatBubble.user(
+                                label: 'Suara Anda',
+                                body: conversation.question,
+                              ),
+                              const SizedBox(height: 12),
+                              ChatBubble.alice(
+                                label: 'Respon Sistem',
+                                body:
+                                    conversation.answer ??
+                                    'Sedang menyiapkan jawaban...',
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        ),
-      ),
         ),
         if (_requestStage != _RequestStage.idle && _incomingRequest != null)
           Positioned.fill(
