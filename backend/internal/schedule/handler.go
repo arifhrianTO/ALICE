@@ -33,11 +33,12 @@ const (
 )
 
 type Handler struct {
-	repo Repository
+	repo     Repository
+	notifier Notifier // boleh nil (notifikasi mati)
 }
 
-func NewHandler(repo Repository) *Handler {
-	return &Handler{repo: repo}
+func NewHandler(repo Repository, notifier Notifier) *Handler {
+	return &Handler{repo: repo, notifier: notifier}
 }
 
 func serverError(c *gin.Context, where string, err error) {
@@ -137,6 +138,7 @@ func (h *Handler) CreateRequest(c *gin.Context) {
 	})
 	switch {
 	case err == nil:
+		h.notifyNewRequest(c.Request.Context(), id)
 		c.JSON(http.StatusCreated, response.OK("pengajuan terkirim, menunggu persetujuan", gin.H{"id": id}))
 	case errors.Is(err, ErrNotConnected):
 		c.JSON(http.StatusForbidden, response.Fail("Anda belum terhubung dengan tunanetra ini"))

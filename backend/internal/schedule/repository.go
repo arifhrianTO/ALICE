@@ -67,6 +67,9 @@ type Repository interface {
 
 	// CancelRequest: pendamping membatalkan pengajuan yang masih Menunggu.
 	CancelRequest(ctx context.Context, requestID, companionID string) error
+
+		// NotifyInfo: bahan teks push untuk satu pengajuan.
+	NotifyInfo(ctx context.Context, requestID string) (*NotifyInfo, error)
 }
 
 type postgresRepository struct {
@@ -430,9 +433,30 @@ func (r *postgresRepository) CancelRequest(ctx context.Context, requestID, compa
 		if err != nil {
 			return fmt.Errorf("batalkan pengajuan jadwal: %w", err)
 		}
-		if tag.RowsAffected() == 0 {
+				if tag.RowsAffected() == 0 {
 			return ErrRequestNotFound
 		}
 		return nil
 	})
+}
+
+func (r *postgresRepository) NotifyInfo(ctx context.Context, requestID string) (*NotifyInfo, error) {
+	const query = `
+		SELECT sr.visually_impaired_id::text, cu.name, sr.action::text,
+		       COALESCE(sr.title, ''), COALESCE(sr.repeat_type::text, ''),
+		       COALESCE(to_char(sr.time, 'HH24:MI'), ''), COALESCE(sr.day::text, ''),
+		       COALESCE(to_char(sr.start_date, 'YYYY-MM-DD'), '')
+		FROM public.schedule_request sr
+		JOIN public."user" cu ON cu.user_id = sr.companion_id
+		WHERE sr.schedule_request_id = $1::uuid`
+
+	var in NotifyInfo
+	err := r.pool.QueryRow(ctx, query, requestID).Scan(
+		&in.TunanetraID, &in.CompanionName, &in.Action,
+		&in.Title, &in.RepeatType, &in.Time, &in.Day, &in.StartDate,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ambil bahan notifikasi jadwal: %w", err)
+	}
+	return &in, nil
 }

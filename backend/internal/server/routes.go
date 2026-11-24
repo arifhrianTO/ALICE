@@ -143,7 +143,7 @@ func Setup(db *pgxpool.Pool, cfg *config.Config) (*gin.Engine, error) {
 	tunanetraRepo := tunanetra.NewRepository(db)
 	tunanetraSearch := tunanetra.NewSearchHandler(tunanetraRepo)
 	scheduleRepo := schedule.NewRepository(db)
-	scheduleHandler := schedule.NewHandler(scheduleRepo)
+	scheduleHandler := schedule.NewHandler(scheduleRepo, notificationService)
 
 	// ---------------------------------------------------------------
 	// Pendaftaran endpoint
